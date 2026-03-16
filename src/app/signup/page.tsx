@@ -68,7 +68,6 @@ export default function SignUp() {
       const data = await response.json();
 
       if (!response.ok) {
-        // IMPROVED ERROR HANDLING
         if (data.error?.includes('already registered')) {
           setError('This email is already in use. Please log in instead.');
         } else {
@@ -91,25 +90,25 @@ export default function SignUp() {
         
         <div className="flex flex-col items-center mb-6">
           <Image src="/overlayicon.png" alt="Logo" width={50} height={50} />
-          <h2 className="text-2xl font-black mt-2 text-slate-900 text-center leading-tight">Join the Pride</h2>
-          <p className="text-slate-500 text-sm">Create your Scarlet AI account</p>
+          <h2 className="text-2xl font-black mt-2 text-slate-900 text-center leading-tight">Join the Wave</h2>
+          <p className="text-slate-600 text-sm font-medium">Create your Scarlet AI account</p>
         </div>
 
         <form onSubmit={handleSignUp} className="space-y-4">
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="block text-xs font-black text-slate-500 uppercase mb-1">First Name</label>
+              <label className="block text-xs font-black text-slate-700 uppercase mb-1">First Name</label>
               <input 
-                type="text" placeholder="Paul" required
-                className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+                type="text" placeholder="Ved" required
+                className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm placeholder:text-slate-500"
                 value={firstName} onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-black text-slate-500 uppercase mb-1">Last Name</label>
+              <label className="block text-xs font-black text-slate-700 uppercase mb-1">Last Name</label>
               <input 
-                type="text" placeholder="Robeson" required
-                className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+                type="text" placeholder="Patel" required
+                className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm placeholder:text-slate-500"
                 value={lastName} onChange={(e) => setLastName(e.target.value)}
               />
             </div>
@@ -117,20 +116,20 @@ export default function SignUp() {
 
           <div className="flex gap-4">
             <div className="flex-[2]">
-              <label className="block text-xs font-black text-slate-500 uppercase mb-1">Major</label>
+              <label className="block text-xs font-black text-slate-700 uppercase mb-1">Major</label>
               <select 
                 required
-                className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+                className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm"
                 value={major} onChange={(e) => setMajor(e.target.value)}
               >
-                <option value="">Select Major</option>
+                <option value="" className="text-slate-500">Select Major</option>
                 {RUTGERS_MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-black text-slate-500 uppercase mb-1">Year</label>
+              <label className="block text-xs font-black text-slate-700 uppercase mb-1">Year</label>
               <select 
-                className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+                className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm"
                 value={year} onChange={(e) => setYear(e.target.value)}
               >
                 {CLASS_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
@@ -139,21 +138,26 @@ export default function SignUp() {
           </div>
 
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase mb-1">Rutgers Email</label>
+            <label className="block text-xs font-black text-slate-700 uppercase mb-1">Rutgers Email</label>
             <input 
               type="email" placeholder="netid@scarletmail.rutgers.edu" required
-              className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+              className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm placeholder:text-slate-500"
               value={email} onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase mb-1">Password</label>
+            <label className="block text-xs font-black text-slate-700 uppercase mb-1">Password</label>
             <input 
-              type="password" placeholder="••••••••" required
-              className="w-full p-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-scarlet outline-none text-sm"
+              type="password" 
+              placeholder="8+ chars, 1 number, 1 symbol" 
+              required
+              className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm placeholder:text-slate-500"
               value={password} onChange={(e) => setPassword(e.target.value)}
             />
+            {/* Password Hint */}
+            <p className="text-[10px] text-slate-500 mt-1 ml-1 font-medium italic">Must be 8+ characters with a number & symbol.</p>
+            
             <div className="flex gap-1 mt-2">
               {[1,2,3,4].map(i => (
                 <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${getBarColor(i)}`}></div>
@@ -162,8 +166,8 @@ export default function SignUp() {
           </div>
           
           {error && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-xl">
-              <p className="text-red-600 text-[11px] font-bold uppercase text-center leading-tight">{error}</p>
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-red-700 text-[11px] font-bold uppercase text-center leading-tight">{error}</p>
             </div>
           )}
 
@@ -175,7 +179,7 @@ export default function SignUp() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-slate-500 font-bold">
+        <p className="mt-6 text-center text-xs text-slate-600 font-bold">
           Already a member? <Link href="/login" className="text-scarlet hover:underline">Sign In</Link>
         </p>
       </div>
