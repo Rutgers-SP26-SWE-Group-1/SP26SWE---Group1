@@ -10,17 +10,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null); // NEW: For success messages
   const router = useRouter();
 
   const handleLogin = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Explicitly cast the target if you need to access form fields directly
-    const target = e.currentTarget;
-
     setLoading(true);
     setError(null);
+    setMessage(null);
 
-    // Validate email domain
     if (!email.endsWith('@scarletmail.rutgers.edu')) {
       setError('Please use your Rutgers Scarletmail email address.');
       setLoading(false);
@@ -36,8 +34,28 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push('/chat'); // Redirect to the main chat hub upon success
+      router.push('/chat');
     }
+  };
+
+  // NEW: Forgot Password Function
+  const handleForgotPassword = async () => {
+    if (!email || !email.endsWith('@scarletmail.rutgers.edu')) {
+      setError("Please enter your Rutgers email address first.");
+      return;
+    }
+    
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/update-password`,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setMessage("Reset link sent! Please check your Scarletmail.");
+    }
+    setLoading(false);
   };
 
   return (
@@ -52,29 +70,45 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
-          <input 
-            type="email" 
-            placeholder="NetID@scarletmail.rutgers.edu" 
-            className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none mb-4"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input 
-            type="password" 
-            placeholder="Password" 
-            className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none mb-4"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <div>
+            <label className="block text-xs font-black text-slate-500 uppercase mb-1 ml-1">Email</label>
+            <input 
+              type="email" 
+              placeholder="netid@scarletmail.rutgers.edu" 
+              className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-slate-500 uppercase mb-1 ml-1">Password</label>
+            <input 
+              type="password" 
+              placeholder="••••••••" 
+              className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {/* Forgot Password Link */}
+            <button 
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-[11px] font-black text-slate-400 hover:text-scarlet mt-2 block w-full text-right uppercase tracking-widest transition-colors"
+            >
+              Forgot Password?
+            </button>
+          </div>
           
-          {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
+          {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
+          {message && <p className="text-green-600 text-sm font-bold text-center bg-green-50 p-3 rounded-xl border border-green-100">{message}</p>}
 
           <button 
             disabled={loading}
-            className="w-full bg-[#cc0033] text-white py-4 rounded-2xl font-black text-lg hover:bg-[#990026] transition-all shadow-lg">
-          
+            className="w-full bg-[#cc0033] text-white py-4 rounded-2xl font-black text-lg hover:bg-[#990026] transition-all shadow-lg active:scale-95 disabled:opacity-50"
+          >
             {loading ? 'AUTHENTICATING...' : 'LOGIN'}
           </button>
         </form>
