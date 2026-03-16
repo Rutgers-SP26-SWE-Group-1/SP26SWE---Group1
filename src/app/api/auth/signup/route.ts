@@ -2,33 +2,40 @@ import { NextResponse } from 'next/server';
 import { validateSignup } from '@/lib/auth-logic';
 import { createClient } from '@supabase/supabase-js';
 
-// 1. Initialize the Supabase Client using your environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export async function POST(request: Request) {
   try {
-    const { email, password } = await request.json();
+    // UPDATED: Destructure the new fields from the request
+    const { email, password, fullName, major, year } = await request.json();
 
-    // 2. Run our Jasmine-tested logic (Client-side validation)
     const validation = validateSignup(email, password);
     if (!validation.isValid) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    // 3. ACTUAL Supabase Call (No longer a placeholder)
+    // UPDATED: Pass the metadata into the signUp options
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // This ensures the user is redirected back to your app after clicking the email link
         emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/login`,
+        // This is where the magic happens for your profile display
+        data: {
+          full_name: fullName,
+          major: major,
+          class_year: year,
+        },
       },
     });
 
-    // 4. Handle Supabase errors (e.g., email already exists, password too weak)
     if (error) {
+      // Friendly error mapping for existing users
+      if (error.message.includes("already registered")) {
+        return NextResponse.json({ error: "This email is already in use. Please log in instead." }, { status: 400 });
+      }
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
