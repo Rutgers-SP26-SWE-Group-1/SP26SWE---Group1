@@ -189,7 +189,7 @@ export default function SignUp() {
               type="password" 
               placeholder="Repeat your password" 
               required
-              className={`w-full p-3 bg-slate-50 border-2 rounded-xl outline-none text-sm transition-all ${
+              className={`w-full p-3 bg-slate-50 border-2 rounded-xl outline-none text-sm placeholder:text-slate-600 transition-all ${
                 confirmPassword && password !== confirmPassword 
                   ? 'border-red-500 focus:border-red-500' 
                   : 'border-slate-300 focus:border-scarlet'
