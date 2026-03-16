@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:browser": "node tests/browser-smoke-test.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
@@ -16,6 +17,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^12.7.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -24,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "jasmine": "^6.1.0",
+    "puppeteer": "^24.39.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
