@@ -10,60 +10,72 @@ const SAMPLE_CHATS = [
   { prompt: "How do I succeed at Rutgers?", response: "Stay curious, attend your SWE lectures, and keep building great projects like this!" }
 ];
 
-export default function LandingPage() {
-  const [step, setStep] = useState(0); // 0: Hidden/Reset, 1: User Typing, 2: Sent, 3: AI Thinking, 4: AI Typing
+function LandingPage() {
+  const [step, setStep] = useState(0); // 0: Reset/Wait, 1: User Typing, 2: Sent, 3: AI Thinking, 4: AI Typing
   const [chatIdx, setChatIdx] = useState(0);
-  const [displayText, setDisplayText] = useState('');
+  const [messages, setMessages] = useState<{ type: 'user' | 'ai'; text: string }[]>([]); // Array of {type: 'user' | 'ai', text: string}
+  const [currentTyping, setCurrentTyping] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
     if (step === 0) {
-      // 0. RESET STATE: Wait 1 second in total darkness before starting next prompt
-      timer = setTimeout(() => {
-        setStep(1);
-      }, 1000);
-    } 
-    else if (step === 1) {
-      // 1. User Typing
-      const fullText = SAMPLE_CHATS[chatIdx].prompt;
-      if (displayText.length < fullText.length) {
-        timer = setTimeout(() => {
-          setDisplayText(fullText.slice(0, displayText.length + 1));
-        }, 40); 
+      if (messages.length === 0) {
+        // Start first prompt
+        timer = setTimeout(() => setStep(1), 1000);
       } else {
+        // After last response, wait then reset for next cycle
+        timer = setTimeout(() => {
+          setMessages([]);
+          setStep(1);
+        }, 4000);
+      }
+    } else if (step === 1) {
+      // User Typing
+      if (!isTyping) {
+        setIsTyping(true);
+        setCurrentTyping('');
+      }
+      const fullText = SAMPLE_CHATS[chatIdx].prompt;
+      if (currentTyping.length < fullText.length) {
+        timer = setTimeout(() => {
+          setCurrentTyping(fullText.slice(0, currentTyping.length + 1));
+        }, 40);
+      } else {
+        setIsTyping(false);
+        setMessages(prev => [...prev, { type: 'user', text: currentTyping }]);
         timer = setTimeout(() => setStep(2), 800);
       }
     } else if (step === 2) {
-      // 2. Sent - Pause before thinking
-      timer = setTimeout(() => {
-        setStep(3);
-        setDisplayText(''); 
-      }, 400);
+      // Sent - Pause
+      timer = setTimeout(() => setStep(3), 400);
     } else if (step === 3) {
-      // 3. AI Thinking
-      timer = setTimeout(() => {
-        setStep(4);
-      }, 2000); 
+      // AI Thinking
+      if (!isTyping) {
+        setIsTyping(true);
+        setCurrentTyping('');
+      }
+      timer = setTimeout(() => setStep(4), 2000);
     } else if (step === 4) {
-      // 4. AI Response
+      // AI Typing
       const fullResponse = SAMPLE_CHATS[chatIdx].response;
-      if (displayText.length < fullResponse.length) {
+      if (currentTyping.length < fullResponse.length) {
         timer = setTimeout(() => {
-          setDisplayText(fullResponse.slice(0, displayText.length + 1));
+          setCurrentTyping(fullResponse.slice(0, currentTyping.length + 1));
         }, 25);
       } else {
-        // END OF CYCLE: Wait, then hide everything (back to step 0)
+        setIsTyping(false);
+        setMessages(prev => [...prev, { type: 'ai', text: currentTyping }]);
         timer = setTimeout(() => {
           setStep(0);
-          setDisplayText('');
           setChatIdx((prev) => (prev + 1) % SAMPLE_CHATS.length);
         }, 4000);
       }
     }
 
     return () => clearTimeout(timer);
-  }, [step, displayText, chatIdx]);
+  }, [step, currentTyping, chatIdx, messages.length, isTyping]);
 
   return (
     <main className="min-h-screen bg-white dark:bg-slate-950 flex flex-col items-center justify-center p-4">
@@ -79,45 +91,77 @@ export default function LandingPage() {
 
       {/* The Showcase Box */}
       <div className="w-full max-w-3xl bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl mb-10 p-8 relative overflow-hidden">
-        <div className="flex flex-col space-y-6 min-h-[260px] justify-end">
-          
-          {/* USER SIDE PROMPT - Only visible if step > 0 */}
-          <div className={`bg-blue-600 text-white self-end p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md transition-opacity duration-700 ${step >= 1 ? 'opacity-100' : 'opacity-0'}`}>
-            {step === 1 ? displayText : SAMPLE_CHATS[chatIdx].prompt}
-            {step === 1 && <span className="animate-pulse ml-0.5 font-thin">|</span>}
-          </div>
-           
-           {/* AI SIDE RESPONSE - Only visible if step > 2 */}
-           <div className={`flex items-start gap-4 h-32 transition-opacity duration-700 ${step >= 3 ? 'opacity-100' : 'opacity-0'}`}>
-             <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-               {step >= 3 && (
-                 <div className={`absolute inset-0 rounded-full border-4 border-t-scarlet border-transparent ${step === 3 ? 'animate-spin' : ''}`}></div>
-               )}
-               <div className="relative w-8 h-8">
-                 <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
-               </div>
-             </div>
-
-             <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%] min-h-[60px]">
-               {step === 3 ? (
-                 <div className="flex flex-col gap-2">
-                    <div className="flex gap-1 h-5 items-center">
-                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+        <div className="flex flex-col space-y-6 min-h-[260px]">
+          {/* Render accumulated messages */}
+          {messages.map((msg, idx) => (
+            <div key={idx} className={msg.type === 'user' ? '' : 'flex items-start gap-4'}>
+              {msg.type === 'user' ? (
+                <div className="bg-blue-600 text-white self-end p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                  {msg.text}
+                </div>
+              ) : (
+                <>
+                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                    <div className="relative w-8 h-8">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
                     </div>
-                    <span className="text-slate-400 italic text-xs uppercase tracking-widest font-bold">Analyzing Prompt...</span>
-                 </div>
-               ) : (
-                 <span className="text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
-                   {displayText}
-                   {step === 4 && displayText.length < SAMPLE_CHATS[chatIdx].response.length && (
-                     <span className="inline-block w-1.5 h-4 bg-scarlet ml-1 animate-pulse" />
-                   )}
-                 </span>
-               )}
-             </div>
-           </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%]">
+                    <span className="text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                      {msg.text}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* Current typing animation */}
+          {isTyping && (
+            <>
+              {step === 1 && (
+                <div className="bg-blue-600 text-white self-end p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                  {currentTyping}
+                  <span className="animate-pulse ml-0.5 font-thin">|</span>
+                </div>
+              )}
+              {step === 3 && (
+                <div className="flex items-start gap-4">
+                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border-4 border-t-scarlet border-transparent animate-spin"></div>
+                    <div className="relative w-8 h-8">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
+                    </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%] min-h-[60px]">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-1 h-5 items-center">
+                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                      </div>
+                      <span className="text-slate-400 italic text-xs uppercase tracking-widest font-bold">Analyzing Prompt...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {step === 4 && (
+                <div className="flex items-start gap-4">
+                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                    <div className="relative w-8 h-8">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
+                    </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%]">
+                    <span className="text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                      {currentTyping}
+                      <span className="inline-block w-1.5 h-4 bg-scarlet ml-1 animate-pulse" />
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -141,3 +185,5 @@ export default function LandingPage() {
     </main>
   );
 }
+
+export default LandingPage;
