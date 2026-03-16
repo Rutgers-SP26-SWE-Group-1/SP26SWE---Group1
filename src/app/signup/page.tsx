@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation'; // Added for redirection
 import { validateSignup } from '@/lib/auth-logic';
 
 const RUTGERS_MAJORS = [
@@ -13,11 +14,12 @@ const RUTGERS_MAJORS = [
 const CLASS_YEARS = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"];
 
 export default function SignUp() {
+  const router = useRouter(); // Initialize router
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState(''); // Added confirm password state
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [major, setMajor] = useState('');
   const [year, setYear] = useState('Freshman');
   const [error, setError] = useState('');
@@ -46,7 +48,6 @@ export default function SignUp() {
     setLoading(true);
     setError('');
 
-    // Extra check: Do passwords match?
     if (password !== confirmPassword) {
       setError("Passwords do not match!");
       setLoading(false);
@@ -82,7 +83,8 @@ export default function SignUp() {
           setError(data.error || 'Something went wrong');
         }
       } else {
-        alert('Verification email sent! Please check your Scarletmail.');
+        // SUCCESS: Redirect to the Verification Notice page
+        router.push('/signup/verify-notice');
       }
     } catch (err) {
       setError('Failed to connect to the server.');
@@ -164,14 +166,12 @@ export default function SignUp() {
               value={password} onChange={(e) => setPassword(e.target.value)}
             />
             
-            {/* Strength Meter Bars */}
             <div className="flex gap-1 mt-2">
               {[1,2,3,4].map(i => (
                 <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${getBarColor(i)}`}></div>
               ))}
             </div>
 
-            {/* Strength Text Labels */}
             <div className="flex justify-between mt-1 px-1">
               <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Strength</p>
               <p className={`text-[10px] font-bold italic ${
@@ -182,7 +182,6 @@ export default function SignUp() {
             </div>
           </div>
 
-          {/* Confirm Password Field */}
           <div>
             <label className="block text-xs font-black text-slate-700 uppercase mb-1">Confirm Password</label>
             <input 
