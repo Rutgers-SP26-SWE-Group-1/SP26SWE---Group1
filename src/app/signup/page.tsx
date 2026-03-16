@@ -17,6 +17,7 @@ export default function SignUp() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // Added confirm password state
   const [major, setMajor] = useState('');
   const [year, setYear] = useState('Freshman');
   const [error, setError] = useState('');
@@ -44,6 +45,13 @@ export default function SignUp() {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    // Extra check: Do passwords match?
+    if (password !== confirmPassword) {
+      setError("Passwords do not match!");
+      setLoading(false);
+      return;
+    }
 
     const validation = validateSignup(email, password);
     if (!validation.isValid) {
@@ -155,14 +163,45 @@ export default function SignUp() {
               className="w-full p-3 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm placeholder:text-slate-500"
               value={password} onChange={(e) => setPassword(e.target.value)}
             />
-            {/* Password Hint */}
-            <p className="text-[10px] text-slate-500 mt-1 ml-1 font-medium italic">Must be 8+ characters with a number & symbol.</p>
             
+            {/* Strength Meter Bars */}
             <div className="flex gap-1 mt-2">
               {[1,2,3,4].map(i => (
-                <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${getBarColor(i)}`}></div>
+                <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${getBarColor(i)}`}></div>
               ))}
             </div>
+
+            {/* Strength Text Labels */}
+            <div className="flex justify-between mt-1 px-1">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Strength</p>
+              <p className={`text-[10px] font-bold italic ${
+                strength <= 2 ? 'text-red-500' : strength === 3 ? 'text-amber-500' : 'text-green-500'
+              }`}>
+                {strength === 0 ? 'Empty' : strength <= 2 ? 'Weak' : strength === 3 ? 'Fair' : 'Strong!'}
+              </p>
+            </div>
+          </div>
+
+          {/* Confirm Password Field */}
+          <div>
+            <label className="block text-xs font-black text-slate-700 uppercase mb-1">Confirm Password</label>
+            <input 
+              type="password" 
+              placeholder="Repeat your password" 
+              required
+              className={`w-full p-3 bg-slate-50 border-2 rounded-xl outline-none text-sm transition-all ${
+                confirmPassword && password !== confirmPassword 
+                  ? 'border-red-500 focus:border-red-500' 
+                  : 'border-slate-300 focus:border-scarlet'
+              }`}
+              value={confirmPassword} 
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            {confirmPassword && password !== confirmPassword && (
+              <p className="text-[10px] text-red-500 mt-1 font-bold uppercase italic px-1 tracking-tight">
+                Passwords do not match
+              </p>
+            )}
           </div>
           
           {error && (
