@@ -11,9 +11,9 @@ const SAMPLE_CHATS = [
 ];
 
 function LandingPage() {
-  const [step, setStep] = useState(0); // 0: Reset/Wait, 1: User Typing, 2: Sent, 3: AI Thinking, 4: AI Typing
+  const [step, setStep] = useState(0); // 0: Reset/Wait, 1: User Typing, 2: Pause, 3: AI Thinking, 4: AI Typing
   const [chatIdx, setChatIdx] = useState(0);
-  const [messages, setMessages] = useState<{ type: 'user' | 'ai'; text: string }[]>([]); // Array of {type: 'user' | 'ai', text: string}
+  const [messages, setMessages] = useState<{ type: 'user' | 'ai'; text: string }[]>([]);
   const [currentTyping, setCurrentTyping] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
@@ -21,55 +21,68 @@ function LandingPage() {
     let timer: NodeJS.Timeout;
 
     if (step === 0) {
-      if (messages.length === 0) {
-        // Start first prompt
-        timer = setTimeout(() => setStep(1), 1000);
-      } else {
-        // After last response, wait then reset for next cycle
-        timer = setTimeout(() => {
-          setMessages([]);
-          setStep(1);
-        }, 4000);
-      }
+      // RESET PHASE
+      timer = setTimeout(() => {
+        setMessages([]);
+        setCurrentTyping('');
+        setIsTyping(false);
+        setStep(1);
+      }, messages.length === 0 ? 1000 : 4000);
+
     } else if (step === 1) {
-      // User Typing
+      // USER TYPING
       if (!isTyping) {
         setIsTyping(true);
-        setCurrentTyping('');
+        setCurrentTyping(''); // Clear before starting
       }
+      
       const fullText = SAMPLE_CHATS[chatIdx].prompt;
       if (currentTyping.length < fullText.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullText.slice(0, currentTyping.length + 1));
         }, 40);
       } else {
-        setIsTyping(false);
-        setMessages(prev => [...prev, { type: 'user', text: currentTyping }]);
-        timer = setTimeout(() => setStep(2), 800);
+        // Finished typing
+        timer = setTimeout(() => {
+          setMessages([{ type: 'user', text: fullText }]);
+          setIsTyping(false);
+          setCurrentTyping('');
+          setStep(2);
+        }, 800);
       }
+
     } else if (step === 2) {
-      // Sent - Pause
-      timer = setTimeout(() => setStep(3), 400);
+      // BRIEF PAUSE AFTER SENT
+      timer = setTimeout(() => setStep(3), 600);
+
     } else if (step === 3) {
-      // AI Thinking
+      // AI THINKING
+      if (!isTyping) setIsTyping(true);
+      timer = setTimeout(() => {
+        setIsTyping(false);
+        setStep(4);
+      }, 2500);
+
+    } else if (step === 4) {
+      // AI TYPING
       if (!isTyping) {
         setIsTyping(true);
-        setCurrentTyping('');
+        setCurrentTyping(''); // Clear before starting
       }
-      timer = setTimeout(() => setStep(4), 2000);
-    } else if (step === 4) {
-      // AI Typing
+
       const fullResponse = SAMPLE_CHATS[chatIdx].response;
       if (currentTyping.length < fullResponse.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullResponse.slice(0, currentTyping.length + 1));
-        }, 25);
+        }, 30);
       } else {
-        setIsTyping(false);
-        setMessages(prev => [...prev, { type: 'ai', text: currentTyping }]);
+        // Finished AI Response
         timer = setTimeout(() => {
-          setStep(0);
+          setMessages(prev => [...prev, { type: 'ai', text: fullResponse }]);
+          setIsTyping(false);
+          setCurrentTyping('');
           setChatIdx((prev) => (prev + 1) % SAMPLE_CHATS.length);
+          setStep(0); // Back to reset phase
         }, 4000);
       }
     }
@@ -92,11 +105,11 @@ function LandingPage() {
       {/* The Showcase Box */}
       <div className="w-full max-w-3xl bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl mb-10 p-8 relative overflow-hidden">
         <div className="flex flex-col space-y-6 min-h-[260px]">
-          {/* Render accumulated messages */}
+          {/* Render previous messages */}
           {messages.map((msg, idx) => (
-            <div key={idx} className={msg.type === 'user' ? '' : 'flex items-start gap-4'}>
+            <div key={idx} className={msg.type === 'user' ? 'flex justify-end' : 'flex items-start gap-4'}>
               {msg.type === 'user' ? (
-                <div className="bg-blue-600 text-white self-end p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                <div className="bg-[#cc0033] text-white p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
                   {msg.text}
                 </div>
               ) : (
@@ -120,9 +133,11 @@ function LandingPage() {
           {isTyping && (
             <>
               {step === 1 && (
-                <div className="bg-blue-600 text-white self-end p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
-                  {currentTyping}
-                  <span className="animate-pulse ml-0.5 font-thin">|</span>
+                <div className="flex justify-end">
+                    <div className="bg-[#cc0033] text-white p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                    {currentTyping}
+                    <span className="animate-pulse ml-0.5 font-thin">|</span>
+                    </div>
                 </div>
               )}
               {step === 3 && (
