@@ -11,17 +11,19 @@ const SAMPLE_CHATS = [
 ];
 
 function LandingPage() {
-  const [step, setStep] = useState(0); // 0: Reset/Wait, 1: User Typing, 2: Pause, 3: AI Thinking, 4: AI Typing
+  const [step, setStep] = useState(0);
   const [chatIdx, setChatIdx] = useState(0);
   const [messages, setMessages] = useState<{ type: 'user' | 'ai'; text: string }[]>([]);
   const [currentTyping, setCurrentTyping] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
     if (step === 0) {
-      // RESET PHASE
       timer = setTimeout(() => {
         setMessages([]);
         setCurrentTyping('');
@@ -30,19 +32,16 @@ function LandingPage() {
       }, messages.length === 0 ? 1000 : 4000);
 
     } else if (step === 1) {
-      // USER TYPING
       if (!isTyping) {
         setIsTyping(true);
-        setCurrentTyping(''); // Clear before starting
+        setCurrentTyping('');
       }
-      
       const fullText = SAMPLE_CHATS[chatIdx].prompt;
       if (currentTyping.length < fullText.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullText.slice(0, currentTyping.length + 1));
         }, 40);
       } else {
-        // Finished typing
         timer = setTimeout(() => {
           setMessages([{ type: 'user', text: fullText }]);
           setIsTyping(false);
@@ -52,11 +51,9 @@ function LandingPage() {
       }
 
     } else if (step === 2) {
-      // BRIEF PAUSE AFTER SENT
       timer = setTimeout(() => setStep(3), 600);
 
     } else if (step === 3) {
-      // AI THINKING
       if (!isTyping) setIsTyping(true);
       timer = setTimeout(() => {
         setIsTyping(false);
@@ -64,25 +61,22 @@ function LandingPage() {
       }, 2500);
 
     } else if (step === 4) {
-      // AI TYPING
       if (!isTyping) {
         setIsTyping(true);
-        setCurrentTyping(''); // Clear before starting
+        setCurrentTyping('');
       }
-
       const fullResponse = SAMPLE_CHATS[chatIdx].response;
       if (currentTyping.length < fullResponse.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullResponse.slice(0, currentTyping.length + 1));
         }, 30);
       } else {
-        // Finished AI Response
         timer = setTimeout(() => {
           setMessages(prev => [...prev, { type: 'ai', text: fullResponse }]);
           setIsTyping(false);
           setCurrentTyping('');
           setChatIdx((prev) => (prev + 1) % SAMPLE_CHATS.length);
-          setStep(0); // Back to reset phase
+          setStep(0);
         }, 4000);
       }
     }
@@ -91,86 +85,108 @@ function LandingPage() {
   }, [step, currentTyping, chatIdx, messages.length, isTyping]);
 
   return (
-    <main className="min-h-screen bg-white dark:bg-slate-950 flex flex-col items-center justify-center p-4">
-      {/* Header */}
-      <div className="mb-10 text-center flex flex-col items-center">
-        <div className="relative w-72 h-72 mb-2">
+    <main className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-6 py-16 selection:bg-scarlet/20">
+
+      {/* Hero */}
+      <div
+        className="mb-14 text-center flex flex-col items-center"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(24px)',
+          transition: 'opacity 0.8s cubic-bezier(.16,1,.3,1), transform 0.8s cubic-bezier(.16,1,.3,1)',
+        }}
+      >
+        <div className="relative w-56 h-56 mb-4">
           <Image src="/landingicon.png" alt="Logo" fill className="object-contain" priority />
         </div>
-        <p className="text-slate-600 dark:text-slate-400 mt-2 font-semibold">
+        <p className="text-[#86868b] text-base font-medium tracking-tight max-w-sm leading-relaxed">
           The official AI interface for the Rutgers community.
         </p>
       </div>
 
-      {/* The Showcase Box */}
-      <div className="w-full max-w-3xl bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl mb-10 p-8 relative overflow-hidden">
-        <div className="flex flex-col space-y-6 min-h-[260px]">
-          {/* Render previous messages */}
+      {/* Showcase */}
+      <div
+        className="w-full max-w-2xl rounded-[28px] mb-14 p-[1px] relative overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, rgba(204,0,51,0.25), rgba(0,0,0,0.08) 40%, rgba(0,0,0,0.06) 60%, rgba(204,0,51,0.15))',
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(32px)',
+          transition: 'opacity 0.8s cubic-bezier(.16,1,.3,1) 0.15s, transform 0.8s cubic-bezier(.16,1,.3,1) 0.15s',
+        }}
+      >
+        <div
+          className="rounded-[27px] bg-white p-7"
+          style={{ boxShadow: '0 4px 60px -16px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.04)' }}
+        >
+        <div className="flex flex-col space-y-5 min-h-[220px]">
+          {/* Rendered messages */}
           {messages.map((msg, idx) => (
-            <div key={idx} className={msg.type === 'user' ? 'flex justify-end' : 'flex items-start gap-4'}>
+            <div key={idx} className={msg.type === 'user' ? 'flex justify-end' : 'flex items-end gap-2.5'}>
               {msg.type === 'user' ? (
-                <div className="bg-[#cc0033] text-white p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                <div
+                  className="text-white px-5 py-3 rounded-[22px] rounded-br-sm text-[15px] font-normal leading-[1.45] shadow-md max-w-[80%]"
+                  style={{ background: 'linear-gradient(135deg, #cc0033 0%, #a30026 100%)' }}
+                >
                   {msg.text}
                 </div>
               ) : (
                 <>
-                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-                    <div className="relative w-8 h-8">
-                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                    <div className="relative w-[18px] h-[18px]">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%]">
-                    <span className="text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
-                      {msg.text}
-                    </span>
+                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm">
+                    <span className="text-[#1d1d1f] font-normal">{msg.text}</span>
                   </div>
                 </>
               )}
             </div>
           ))}
 
-          {/* Current typing animation */}
+          {/* Typing animations */}
           {isTyping && (
             <>
               {step === 1 && (
-                <div className="flex justify-end">
-                    <div className="bg-[#cc0033] text-white p-4 rounded-2xl rounded-tr-none text-sm font-medium max-w-[80%] shadow-md">
+                <div className="flex justify-end"
+                  style={{ opacity: 1, transform: 'translateY(0) scale(1)', transition: 'opacity 0.4s ease, transform 0.4s cubic-bezier(.16,1,.3,1)' }}
+                >
+                  <div
+                    className="text-white px-5 py-3 rounded-[22px] rounded-br-sm text-[15px] font-normal leading-[1.45] shadow-md max-w-[80%]"
+                    style={{ background: 'linear-gradient(135deg, #cc0033 0%, #a30026 100%)' }}
+                  >
                     {currentTyping}
-                    <span className="animate-pulse ml-0.5 font-thin">|</span>
-                    </div>
+                    <span className="animate-pulse ml-0.5 font-light">|</span>
+                  </div>
                 </div>
               )}
               {step === 3 && (
-                <div className="flex items-start gap-4">
-                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-                    <div className="absolute inset-0 rounded-full border-4 border-t-scarlet border-transparent animate-spin"></div>
-                    <div className="relative w-8 h-8">
-                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
+                <div className="flex items-end gap-2.5">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                    <div className="relative w-[18px] h-[18px]">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%] min-h-[60px]">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex gap-1 h-5 items-center">
-                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                        <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.4s]"></div>
-                      </div>
-                      <span className="text-slate-400 italic text-xs uppercase tracking-widest font-bold">Analyzing Prompt...</span>
+                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] min-h-[44px] shadow-sm">
+                    <div className="flex gap-[5px] items-center h-[22px]">
+                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce [animation-delay:0.15s]"></div>
+                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce [animation-delay:0.3s]"></div>
                     </div>
                   </div>
                 </div>
               )}
               {step === 4 && (
-                <div className="flex items-start gap-4">
-                  <div className="relative flex-shrink-0 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-inner border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-                    <div className="relative w-8 h-8">
-                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain p-1" />
+                <div className="flex items-end gap-2.5">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                    <div className="relative w-[18px] h-[18px]">
+                      <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-white dark:bg-slate-800 self-start p-5 rounded-2xl rounded-tl-none text-sm border border-slate-200 dark:border-slate-700 shadow-sm w-full max-w-[80%]">
-                    <span className="text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm">
+                    <span className="text-[#1d1d1f] font-normal">
                       {currentTyping}
-                      <span className="inline-block w-1.5 h-4 bg-scarlet ml-1 animate-pulse" />
+                      <span className="inline-block w-[2px] h-[18px] bg-[#8e8e93] ml-0.5 animate-pulse align-text-bottom" />
                     </span>
                   </div>
                 </div>
@@ -178,23 +194,41 @@ function LandingPage() {
             </>
           )}
         </div>
+        </div>
       </div>
 
-      {/* Buttons */}
-      <div className="flex flex-col gap-4 w-full max-w-md">
-        <Link href="/login" className="w-full bg-[#cc0033] text-white text-center py-5 rounded-2xl font-black text-xl hover:bg-[#990026] transition-all shadow-xl active:scale-95 border-b-4 border-red-900">
+      {/* CTAs */}
+      <div
+        className="flex flex-col gap-3 w-full max-w-sm"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(32px)',
+          transition: 'opacity 0.8s cubic-bezier(.16,1,.3,1) 0.3s, transform 0.8s cubic-bezier(.16,1,.3,1) 0.3s',
+        }}
+      >
+        <Link
+          href="/login"
+          className="w-full bg-scarlet text-white text-center py-4 rounded-2xl font-bold text-[17px] tracking-tight hover:brightness-110 active:scale-[0.98] transition-all duration-200"
+        >
           LOGIN WITH SCARLETMAIL
         </Link>
-        <div className="flex gap-4 w-full">
-          <Link href="/signup" className="flex-1 bg-white border-2 border-[#cc0033] text-[#cc0033] text-center py-4 rounded-2xl font-black text-lg hover:bg-red-50 transition-all border-b-4 border-red-100">
+        <div className="flex gap-3 w-full">
+          <Link
+            href="/signup"
+            className="flex-1 bg-white text-scarlet text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight border border-[#d2d2d7] hover:bg-[#f5f5f7] active:scale-[0.98] transition-all duration-200"
+          >
             CREATE ACCOUNT
           </Link>
-          <Link href="/chat" className="flex-1 bg-slate-900 text-white text-center py-4 rounded-2xl font-black text-lg hover:bg-black transition-all border-b-4 border-slate-700">
+          <Link
+            href="/chat"
+            className="flex-1 bg-[#1d1d1f] text-white text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight hover:bg-[#333336] active:scale-[0.98] transition-all duration-200"
+          >
             GUEST ACCESS
           </Link>
         </div>
       </div>
-      <p className="mt-10 text-xs text-slate-500 font-bold uppercase tracking-widest">
+
+      <p className="mt-12 text-[11px] text-[#86868b] font-medium tracking-widest uppercase">
         Rutgers University Restricted Access
       </p>
     </main>

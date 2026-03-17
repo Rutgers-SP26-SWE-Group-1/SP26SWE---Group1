@@ -1,4 +1,5 @@
 'use client';
+
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -10,7 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null); // NEW: For success messages
+  const [message, setMessage] = useState<string | null>(null);
   const router = useRouter();
 
   const handleLogin = async (e: React.SyntheticEvent<HTMLFormElement>) => {
@@ -38,13 +39,12 @@ export default function LoginPage() {
     }
   };
 
-  // NEW: Forgot Password Function
   const handleForgotPassword = async () => {
     if (!email || !email.endsWith('@scarletmail.rutgers.edu')) {
       setError("Please enter your Rutgers email address first.");
       return;
     }
-    
+
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/auth/update-password`,
@@ -58,24 +58,40 @@ export default function LoginPage() {
     setLoading(false);
   };
 
+  const inputBase =
+    'w-full h-[50px] px-4 bg-[#f5f5f7] text-[#1d1d1f] text-[15px] rounded-xl border border-[#d2d2d7] outline-none transition-all duration-200 placeholder:text-[#8e8e93] focus:border-scarlet focus:ring-2 focus:ring-scarlet/20';
+
   return (
-    <main className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md p-8 border-2 border-slate-100 rounded-3xl shadow-2xl">
-        <Link href="/" className="text-[#a30026] font-bold hover:underline">← Home</Link>
-        
-        <div className="flex flex-col items-center my-6">
-          <Image src="/overlayicon.png" alt="Scarlet AI" width={80} height={80} />
-          <h1 className="text-3xl font-black mt-4 text-slate-900">Welcome Back</h1>
-          <p className="text-slate-500 text-sm">Sign in to your Rutgers Scarlet AI account</p>
+    <main className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4 py-12">
+      <div
+        className="w-full max-w-[440px] bg-white rounded-3xl p-8 sm:p-10"
+        style={{ boxShadow: '0 4px 60px -16px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.04)' }}
+      >
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-[13px] text-[#86868b] font-medium hover:text-scarlet transition-colors duration-200 mb-8"
+        >
+          <svg width="7" height="12" viewBox="0 0 7 12" fill="none" className="mt-px">
+            <path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Home
+        </Link>
+
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-14 h-14 rounded-2xl bg-[#f5f5f7] flex items-center justify-center mb-4">
+            <Image src="/overlayicon.png" alt="Scarlet AI" width={32} height={32} />
+          </div>
+          <h1 className="text-[26px] font-bold text-[#1d1d1f] tracking-tight">Welcome Back</h1>
+          <p className="text-[14px] text-[#86868b] mt-1">Sign in to your Rutgers Scarlet AI account</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase mb-1 ml-1">Email</label>
-            <input 
-              type="email" 
-              placeholder="netid@scarletmail.rutgers.edu" 
-              className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none"
+            <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Email</label>
+            <input
+              type="email"
+              placeholder="netid@scarletmail.rutgers.edu"
+              className={inputBase}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -83,41 +99,51 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase mb-1 ml-1">Password</label>
-            <input 
-              type="password" 
-              placeholder="••••••••" 
-              className="w-full p-4 bg-white border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none"
+            <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Password</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              className={inputBase}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            {/* Forgot Password Link */}
-            <button 
+            <button
               type="button"
               onClick={handleForgotPassword}
-              className="text-[11px] font-black text-slate-400 hover:text-scarlet mt-2 block w-full text-right uppercase tracking-widest transition-colors"
+              className="text-[11px] font-semibold text-[#86868b] hover:text-scarlet mt-2 block w-full text-right tracking-wide transition-colors duration-200"
             >
               Forgot Password?
             </button>
           </div>
-          
-          {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
-          {message && <p className="text-green-600 text-sm font-bold text-center bg-green-50 p-3 rounded-xl border border-green-100">{message}</p>}
 
-          <button 
+          {error && (
+            <div className="bg-[#ff3b30]/8 border border-[#ff3b30]/20 rounded-xl px-4 py-3">
+              <p className="text-[#ff3b30] text-[13px] font-medium text-center">{error}</p>
+            </div>
+          )}
+          {message && (
+            <div className="bg-[#34c759]/8 border border-[#34c759]/20 rounded-xl px-4 py-3">
+              <p className="text-[#34c759] text-[13px] font-medium text-center">{message}</p>
+            </div>
+          )}
+
+          <button
             disabled={loading}
-            className="w-full bg-[#cc0033] text-white py-4 rounded-2xl font-black text-lg hover:bg-[#990026] transition-all shadow-lg active:scale-95 disabled:opacity-50"
+            className="w-full h-[50px] text-white text-[16px] font-semibold tracking-tight rounded-xl hover:brightness-110 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:active:scale-100 mt-2"
+            style={{ background: 'linear-gradient(135deg, #cc0033 0%, #a30026 100%)' }}
           >
-            {loading ? 'AUTHENTICATING...' : 'LOGIN'}
+            {loading ? 'Authenticating...' : 'Log In'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-600">
-          Don't have an account? <Link href="/signup" className="text-scarlet font-bold hover:underline">Sign Up</Link>
+        <p className="mt-6 text-center text-[13px] text-[#86868b]">
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" className="text-scarlet font-semibold hover:underline">
+            Sign Up
+          </Link>
         </p>
       </div>
     </main>
   );
 }
-// going to need to see the forgot password stuff
