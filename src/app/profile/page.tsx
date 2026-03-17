@@ -77,7 +77,7 @@ export default function ProfilePage() {
           <h1 className="text-3xl font-black uppercase tracking-tight leading-none">{fullName || 'Scarlet Knight'}</h1>
           
           {/* UPDATED: Larger, clearer sub-header text */}
-          <p className="text-white font-bold uppercase text-[20px] tracking-[0.25em] mt-4 opacity-90">
+          <p className="text-white font-bold uppercase text-[14px] tracking-[0.25em] mt-4 opacity-90">
             {major || 'Student'} <span className="mx-2">•</span> {year}
           </p>
         </div>
@@ -122,7 +122,7 @@ export default function ProfilePage() {
           <div className="border-t border-slate-100 pt-10 flex flex-col items-center gap-8">
              {/* UPDATED: More readable password link with higher contrast and larger text */}
              <Link href="/auth/update-password" 
-                className="text-[15px] font-black text-[#cc0033] uppercase tracking-[0.2em] hover:text-[#990026] transition-all border-b-2 border-scarlet/30 hover:border-scarlet pb-1">
+                className="text-[13px] font-black text-[#cc0033] uppercase tracking-[0.2em] hover:text-[#990026] transition-all border-b-2 border-scarlet/30 hover:border-scarlet pb-1">
                 Change Account Password
              </Link>
 
