@@ -71,7 +71,7 @@ export default function ProfilePage() {
           <Link href="/chat" className="absolute left-6 top-8 text-white/80 hover:text-white font-black text-[11px] uppercase tracking-widest transition-all">
             ← Back to Chat
           </Link>
-          <div className="w-30 h-30 rounded-full bg-white/20 border-4 border-white/30 flex items-center justify-center mb-6 shadow-inner">
+          <div className="w-24 h-24 rounded-full bg-white/20 border-4 border-white/30 flex items-center justify-center mb-6 shadow-inner">
             <Image src="/websiteicon.png" alt="Profile" width={60} height={60} className="brightness-200 opacity-80" />
           </div>
           <h1 className="text-3xl font-black uppercase tracking-tight leading-none">{fullName || 'Scarlet Knight'}</h1>

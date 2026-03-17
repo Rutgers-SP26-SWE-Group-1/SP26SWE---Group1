@@ -68,7 +68,7 @@ export default function ChatHub() {
                 <p className="text-[11px] font-black text-slate-900 leading-none group-hover:text-scarlet transition-colors uppercase">{userName}</p>
                 <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{userMajor}</p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-slate-50 border border-slate-200 group-hover:border-scarlet flex items-center justify-center overflow-hidden">
+              <div className="w-9 h-9 rounded-full bg-slate-50 border border-slate-200 group-hover:border-scarlet flex items-center justify-center overflow-hidden">
                 <Image src="/websiteicon.png" alt="Profile" width={20} height={20} className="opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-100 transition-all" />
               </div>
             </Link>
