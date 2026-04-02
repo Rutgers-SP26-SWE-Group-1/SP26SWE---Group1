@@ -4,10 +4,11 @@ import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 
 export default function UpdatePasswordPage() {
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState(''); // Added confirm password state
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -63,7 +64,10 @@ export default function UpdatePasswordPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-slate-200 text-center">
+      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-slate-200 text-center relative">
+        <Link href="/profile" className="absolute left-6 top-6 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-scarlet transition-all">
+          ← Cancel
+        </Link>
         <Image src="/overlayicon.png" alt="Logo" width={50} height={50} className="mx-auto mb-4" />
         <h2 className="text-2xl font-black text-slate-900 mb-2">Create New Password</h2>
         <p className="text-slate-500 text-sm mb-6">Resetting your Scarlet AI access.</p>
@@ -139,4 +143,3 @@ export default function UpdatePasswordPage() {
     </main>
   );
 }
-//

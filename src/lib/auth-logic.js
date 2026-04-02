@@ -1,16 +1,17 @@
 function validateSignup(email, password) {
-  // Enforce Rutgers Scarletmail domain restriction
   if (!email.toLowerCase().endsWith('@scarletmail.rutgers.edu')) {
     return { isValid: false, error: "Must use a @scarletmail.rutgers.edu email." };
   }
 
-  // Enforce strong password: 8+ chars, at least 1 number, 1 special char
-  const strongPassword = /^(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{8,})/;
-  if (!strongPassword.test(password)) {
-    return { isValid: false, error: "Password must be 8+ characters with a letter, number, and symbol." };
+  if (password.length < 8) {
+    return { isValid: false, error: "Password too short." };
   }
 
-  // If all checks pass
+  const strongPassword = /^(?=.*[a-zA-Z])(?=.*[0-9])(?=.*[!@#$%^&*])/;
+  if (!strongPassword.test(password)) {
+    return { isValid: false, error: "Password must contain a letter, number, and symbol." };
+  }
+
   return { isValid: true, error: null };
 }
 
