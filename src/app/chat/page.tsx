@@ -51,6 +51,7 @@ export default function ChatHub() {
   const [provider, setProvider] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
@@ -109,6 +110,19 @@ export default function ChatHub() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversation?.messages.length, isGenerating]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = '0px';
+    const lineHeight = 24;
+    const maxHeight = lineHeight * 6;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [input]);
 
   const handleNewChat = () => {
     const freshConversation = createUntitledConversation();
@@ -209,8 +223,8 @@ export default function ChatHub() {
   };
 
   return (
-    <div className="flex min-h-screen bg-white text-slate-900">
-      <aside className="w-72 bg-slate-50 border-r border-slate-200 flex-col p-4 hidden md:flex relative z-50">
+    <div className="flex h-screen overflow-hidden bg-white text-slate-900">
+      <aside className="w-72 h-screen bg-slate-50 border-r border-slate-200 flex-col p-4 hidden md:flex relative z-50 overflow-hidden">
         <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
           <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
           <span className="font-black text-xl tracking-tight">
@@ -225,12 +239,12 @@ export default function ChatHub() {
           + New Chat
         </button>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <p className="font-bold uppercase tracking-widest text-[10px] text-slate-400 mb-4">
             Recent History
           </p>
 
-          <div className="space-y-2">
+          <div className="h-full overflow-y-auto pr-1 space-y-2">
             {conversations.length === 0 && (
               <div className="text-sm text-slate-500 italic">No recent chats found.</div>
             )}
@@ -368,18 +382,19 @@ export default function ChatHub() {
 
         <div className="p-6 bg-white border-t border-slate-100">
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto relative">
-            <input
-              type="text"
+            <textarea
+              ref={composerRef}
               placeholder={`Hello ${userName?.split(' ')[0] || 'there'}, ask Scarlet AI anything...`}
-              className="w-full p-5 pr-20 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-slate-400 font-medium"
+              className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 pr-28 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-slate-400 font-medium leading-6"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               maxLength={2000}
+              rows={1}
             />
             <button
               type="submit"
               disabled={isGenerating || !activeConversation}
-              className="absolute right-3 top-3 bottom-3 bg-[#cc0033] text-white px-5 rounded-xl font-bold hover:bg-[#990026] shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+              className="absolute right-3 bottom-3 bg-[#cc0033] text-white px-5 h-10 rounded-xl font-bold hover:bg-[#990026] shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
             >
               <span className="hidden sm:inline text-sm uppercase">
                 {isGenerating ? 'Thinking' : 'Send'}
