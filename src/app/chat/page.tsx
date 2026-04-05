@@ -223,8 +223,8 @@ export default function ChatHub() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white text-slate-900">
-      <aside className="w-72 h-screen bg-slate-50 border-r border-slate-200 flex-col p-4 hidden md:flex relative z-50 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-app-surface text-app-foreground">
+      <aside className="w-72 h-screen bg-app-surface-muted border-r border-app-border flex-col p-4 hidden md:flex relative z-50 overflow-hidden">
         <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
           <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
           <span className="font-black text-xl tracking-tight">
@@ -234,19 +234,19 @@ export default function ChatHub() {
 
         <button
           onClick={handleNewChat}
-          className="w-full py-3 mb-6 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-scarlet hover:text-scarlet transition-all"
+          className="w-full py-3 mb-6 border-2 border-dashed border-app-border-strong rounded-xl text-app-muted font-bold hover:border-scarlet hover:text-scarlet transition-all"
         >
           + New Chat
         </button>
 
         <div className="flex-1 min-h-0 overflow-hidden">
-          <p className="font-bold uppercase tracking-widest text-[10px] text-slate-400 mb-4">
+          <p className="font-bold uppercase tracking-widest text-[10px] text-app-muted mb-4">
             Recent History
           </p>
 
           <div className="h-full overflow-y-auto pr-1 space-y-2">
             {conversations.length === 0 && (
-              <div className="text-sm text-slate-500 italic">No recent chats found.</div>
+              <div className="text-sm text-app-muted italic">No recent chats found.</div>
             )}
 
             {conversations.map((conversation) => (
@@ -255,14 +255,14 @@ export default function ChatHub() {
                 onClick={() => handleSelectConversation(conversation.id)}
                 className={`w-full text-left rounded-xl px-3 py-3 border transition-all ${
                   conversation.id === activeConversationId
-                    ? 'bg-white border-scarlet/30 shadow-sm'
-                    : 'bg-transparent border-transparent hover:bg-white hover:border-slate-200'
+                    ? 'bg-app-surface border-scarlet/30 shadow-sm'
+                    : 'bg-transparent border-transparent hover:bg-app-surface hover:border-app-border'
                 }`}
               >
-                <p className="text-sm font-semibold text-slate-900 line-clamp-2">
+                <p className="text-sm font-semibold text-app-foreground line-clamp-2">
                   {conversation.title}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="text-[11px] text-app-muted mt-1">
                   {new Date(conversation.updatedAt).toLocaleString()}
                 </p>
               </button>
@@ -270,7 +270,7 @@ export default function ChatHub() {
           </div>
         </div>
 
-        <div className="mt-auto pt-4 border-t border-slate-200">
+        <div className="mt-auto pt-4 border-t border-app-border">
           {userEmail ? (
             <LogoutButton />
           ) : (
@@ -282,26 +282,26 @@ export default function ChatHub() {
       </aside>
 
       <main className="flex-1 flex flex-col relative z-10">
-        <header className="flex justify-between items-center px-6 py-3 bg-white border-b border-slate-100 gap-4">
+        <header className="flex justify-between items-center px-6 py-3 pr-20 bg-app-surface border-b border-app-border gap-4">
           <button
             onClick={handleNewChat}
-            className="md:hidden bg-slate-100 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
+            className="md:hidden bg-app-surface-subtle border border-app-border text-app-foreground px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
           >
             New Chat
           </button>
 
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-app-muted">
             {provider ? `Provider: ${provider}` : 'Ready for chat'}
           </div>
 
           <Link href={profileHref} className="flex items-center gap-3 group">
             <div className="text-right hidden sm:block">
-              <p className="text-[11px] font-black text-slate-900 leading-none group-hover:text-scarlet transition-colors uppercase">
+              <p className="text-[11px] font-black text-app-foreground leading-none group-hover:text-scarlet transition-colors uppercase">
                 {userName}
               </p>
-              <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{userMajor}</p>
+              <p className="text-[9px] text-app-muted font-bold uppercase mt-1">{userMajor}</p>
             </div>
-            <div className="w-9 h-9 rounded-full bg-slate-50 border border-slate-200 group-hover:border-scarlet flex items-center justify-center overflow-hidden">
+            <div className="w-9 h-9 rounded-full bg-app-surface-muted border border-app-border group-hover:border-scarlet flex items-center justify-center overflow-hidden">
               <Image
                 src="/websiteicon.png"
                 alt="Profile"
@@ -315,12 +315,12 @@ export default function ChatHub() {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {activeConversation && activeConversation.messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
+            <div className="h-full flex flex-col items-center justify-center text-center opacity-70">
               <Image src="/overlayicon.png" alt="Logo" width={100} height={100} />
               <h2 className="text-2xl font-black mt-4 uppercase tracking-tighter italic">
                 How can I help you, {userName?.split(' ')[0] || 'Scarlet Knight'}?
               </h2>
-              <p className="max-w-xl mt-3 text-sm text-slate-500 font-medium">
+              <p className="max-w-xl mt-3 text-sm text-app-muted font-medium">
                 Ask about Rutgers life, software engineering, study support, or general questions.
               </p>
             </div>
@@ -334,7 +334,7 @@ export default function ChatHub() {
               }`}
             >
               {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full border border-slate-200 flex-shrink-0 flex items-center justify-center bg-white shadow-sm">
+                <div className="w-8 h-8 rounded-full border border-app-border flex-shrink-0 flex items-center justify-center bg-app-surface shadow-sm">
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
                 </div>
               )}
@@ -342,7 +342,7 @@ export default function ChatHub() {
                 className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl shadow-sm font-medium whitespace-pre-wrap ${
                   msg.role === 'user'
                     ? 'bg-[#cc0033] text-white rounded-tr-none'
-                    : 'bg-slate-100 text-slate-900 border border-slate-200 rounded-tl-none'
+                    : 'bg-app-surface-muted text-app-foreground border border-app-border rounded-tl-none'
                 }`}
               >
                 {msg.content}
@@ -354,17 +354,17 @@ export default function ChatHub() {
             <div className="flex items-start gap-3">
               <div className="relative w-9 h-9 flex-shrink-0">
                 <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
-                <div className="w-full h-full rounded-full border border-slate-200 flex items-center justify-center bg-white">
+                <div className="w-full h-full rounded-full border border-app-border flex items-center justify-center bg-app-surface">
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
                 </div>
               </div>
-              <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 min-w-[200px]">
+              <div className="bg-app-surface-muted border border-app-border p-5 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 min-w-[200px]">
                 <div className="flex gap-1.5 items-center">
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest animate-pulse">
+                <span className="text-[10px] text-app-muted font-black uppercase tracking-widest animate-pulse">
                   Analyzing Prompt...
                 </span>
               </div>
@@ -380,12 +380,12 @@ export default function ChatHub() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-6 bg-white border-t border-slate-100">
+        <div className="p-6 bg-app-surface border-t border-app-border">
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto relative">
             <textarea
               ref={composerRef}
               placeholder={`Hello ${userName?.split(' ')[0] || 'there'}, ask Scarlet AI anything...`}
-              className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 pr-28 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-slate-400 font-medium leading-6"
+              className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 pr-28 bg-app-surface-subtle border-2 border-app-border-strong text-app-foreground rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-app-muted font-medium leading-6"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               maxLength={2000}
@@ -401,7 +401,7 @@ export default function ChatHub() {
               </span>
             </button>
           </form>
-          <p className="text-[10px] text-center text-slate-500 mt-4 font-bold uppercase tracking-[0.2em]">
+          <p className="text-[10px] text-center text-app-muted mt-4 font-bold uppercase tracking-[0.2em]">
             Official Interface • Rutgers Software Engineering
           </p>
         </div>

@@ -57,14 +57,14 @@ export default function ProfilePage() {
   };
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 text-[12px] font-black uppercase tracking-widest text-slate-400">
+    <div className="min-h-screen flex items-center justify-center bg-app-background text-[12px] font-black uppercase tracking-widest text-app-muted">
       Loading Scarlet Profile...
     </div>
   );
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 py-12 font-sans">
-      <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+    <main className="min-h-screen bg-app-background text-app-foreground p-4 py-12 font-sans">
+      <div className="max-w-2xl mx-auto bg-app-surface rounded-3xl shadow-xl border border-app-border overflow-hidden">
         
         {/* Header Branding */}
         <div className="bg-[#cc0033] p-10 text-white flex flex-col items-center relative text-center">
@@ -86,40 +86,40 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             
             <div className="opacity-70">
-              <label className="block text-[11px] font-black text-slate-500 uppercase mb-2 tracking-widest">Email (Locked)</label>
-              <input type="text" value={email} disabled className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-xl text-sm font-bold cursor-not-allowed text-slate-500" />
+              <label className="block text-[11px] font-black text-app-muted uppercase mb-2 tracking-widest">Email (Locked)</label>
+              <input type="text" value={email} disabled className="w-full p-4 bg-app-surface-subtle border-2 border-app-border rounded-xl text-sm font-bold cursor-not-allowed text-app-muted" />
             </div>
 
             <div>
-              <label className="block text-[11px] font-black text-slate-700 uppercase mb-2 tracking-widest">Full Name</label>
+              <label className="block text-[11px] font-black text-app-foreground uppercase mb-2 tracking-widest">Full Name</label>
               <input 
                 type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
-                className="w-full p-4 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm font-bold transition-all"
+                className="w-full p-4 bg-app-surface-subtle border-2 border-app-border-strong text-app-foreground rounded-xl focus:border-scarlet outline-none text-sm font-bold transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-black text-slate-700 uppercase mb-2 tracking-widest">Major</label>
+              <label className="block text-[11px] font-black text-app-foreground uppercase mb-2 tracking-widest">Major</label>
               <select 
                 value={major} onChange={(e) => setMajor(e.target.value)}
-                className="w-full p-4 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm font-bold appearance-none cursor-pointer"
+                className="w-full p-4 bg-app-surface-subtle border-2 border-app-border-strong text-app-foreground rounded-xl focus:border-scarlet outline-none text-sm font-bold appearance-none cursor-pointer"
               >
                 {RUTGERS_MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
 
             <div>
-              <label className="block text-[11px] font-black text-slate-700 uppercase mb-2 tracking-widest">Class Year</label>
+              <label className="block text-[11px] font-black text-app-foreground uppercase mb-2 tracking-widest">Class Year</label>
               <select 
                 value={year} onChange={(e) => setYear(e.target.value)}
-                className="w-full p-4 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-xl focus:border-scarlet outline-none text-sm font-bold appearance-none cursor-pointer"
+                className="w-full p-4 bg-app-surface-subtle border-2 border-app-border-strong text-app-foreground rounded-xl focus:border-scarlet outline-none text-sm font-bold appearance-none cursor-pointer"
               >
                 {CLASS_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
           </div>
 
-          <div className="border-t border-slate-100 pt-10 flex flex-col items-center gap-8">
+          <div className="border-t border-app-border pt-10 flex flex-col items-center gap-8">
              {/* UPDATED: More readable password link with higher contrast and larger text */}
              <Link href="/auth/update-password" 
                 className="text-[13px] font-black text-[#cc0033] uppercase tracking-[0.2em] hover:text-[#990026] transition-all border-b-2 border-scarlet/30 hover:border-scarlet pb-1">

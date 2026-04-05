@@ -31,7 +31,7 @@ export default function LogoutButton() {
   <button 
     onClick={handleLogout}
     // Added 'justify-center' and 'mx-auto'
-    className="w-full flex items-center justify-center gap-2 p-3 mt-auto text-slate-500 hover:text-scarlet hover:bg-red-50 rounded-xl transition-all font-bold"
+    className="w-full flex items-center justify-center gap-2 p-3 mt-auto text-app-muted hover:text-scarlet hover:bg-red-50/60 rounded-xl transition-all font-bold"
   >
     <span className="text-lg">←</span> Log Out
   </button>

@@ -13,7 +13,7 @@ export default function AuthConfirmed() {
   }, [router]);
 
   return (
-    <main className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
+    <main className="min-h-screen bg-app-background text-app-foreground flex flex-col items-center justify-center p-4">
       <div className="text-center">
         <div className="relative w-24 h-24 mx-auto mb-6">
            {/* Success Ring Animation */}
@@ -25,12 +25,12 @@ export default function AuthConfirmed() {
            </div>
         </div>
         
-        <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-2">Verified!</h1>
-        <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">Welcome to the Scarlet AI Community</p>
+        <h1 className="text-3xl font-black text-app-foreground uppercase tracking-tighter mb-2">Verified!</h1>
+        <p className="text-app-muted font-bold uppercase text-[10px] tracking-[0.2em]">Welcome to the Scarlet AI Community</p>
         
         <div className="mt-10 flex flex-col items-center gap-2">
-            <div className="w-5 h-5 border-2 border-slate-200 border-t-scarlet rounded-full animate-spin"></div>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Redirecting to Chat Hub...</p>
+            <div className="w-5 h-5 border-2 border-app-border border-t-scarlet rounded-full animate-spin"></div>
+            <p className="text-[10px] text-app-muted font-black uppercase tracking-widest">Redirecting to Chat Hub...</p>
         </div>
       </div>
     </main>
