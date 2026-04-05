@@ -6,6 +6,10 @@ import {
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
+import {
+  buildEngineeringFallbackReply,
+  buildEngineeringKnowledgeContext,
+} from '@/lib/rutgers-engineering-knowledge';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -179,7 +183,11 @@ async function generateAssistantReply(
   userName?: string,
   machine?: string
 ): Promise<ProviderResult> {
-  const payload = buildProviderPayload(messages, message, { userName }) as {
+  const engineeringKnowledge = buildEngineeringKnowledgeContext(message);
+  const payload = buildProviderPayload(messages, message, {
+    userName,
+    knowledgeContext: engineeringKnowledge?.context,
+  }) as {
     messages: ChatMessage[];
     userName: string | null;
   };
@@ -187,7 +195,10 @@ async function generateAssistantReply(
 
   if (providerPreference === 'fallback') {
     return {
-      content: buildFallbackReply(message, { userName }),
+      content: buildFallbackReply(message, {
+        userName,
+        knowledgeFallback: buildEngineeringFallbackReply(message) || null,
+      }),
       provider: 'fallback',
     };
   }
@@ -196,7 +207,10 @@ async function generateAssistantReply(
     if (providerPreference === 'ollama') {
       return (
         (await requestOllama(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
+          content: buildFallbackReply(message, {
+            userName,
+            knowledgeFallback: buildEngineeringFallbackReply(message) || null,
+          }),
           provider: 'fallback',
         }
       );
@@ -205,7 +219,10 @@ async function generateAssistantReply(
     if (providerPreference === 'openai') {
       return (
         (await requestOpenAI(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
+          content: buildFallbackReply(message, {
+            userName,
+            knowledgeFallback: buildEngineeringFallbackReply(message) || null,
+          }),
           provider: 'fallback',
         }
       );
@@ -214,7 +231,10 @@ async function generateAssistantReply(
     if (providerPreference === 'gemini') {
       return (
         (await requestGemini(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
+          content: buildFallbackReply(message, {
+            userName,
+            knowledgeFallback: buildEngineeringFallbackReply(message) || null,
+          }),
           provider: 'fallback',
         }
       );
@@ -224,7 +244,10 @@ async function generateAssistantReply(
       (await requestOllama(payload.messages)) ||
       (await requestOpenAI(payload.messages)) ||
       (await requestGemini(payload.messages)) || {
-        content: buildFallbackReply(message, { userName }),
+        content: buildFallbackReply(message, {
+          userName,
+          knowledgeFallback: buildEngineeringFallbackReply(message) || null,
+        }),
         provider: 'fallback',
       }
     );

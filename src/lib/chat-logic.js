@@ -60,6 +60,10 @@ function buildFallbackReply(message, options = {}) {
   const firstName = options.userName ? String(options.userName).trim().split(/\s+/)[0] : null;
   const greeting = firstName ? `${firstName}, ` : '';
 
+  if (options.knowledgeFallback) {
+    return `${greeting}${options.knowledgeFallback}`;
+  }
+
   switch (topic) {
     case 'software-engineering':
       return `${greeting}software engineering is the practice of designing, building, testing, and maintaining reliable software systems. A strong answer usually covers requirements, architecture, implementation, testing, deployment, and iteration.`;
@@ -77,8 +81,11 @@ function buildFallbackReply(message, options = {}) {
 }
 
 function buildProviderPayload(messages, message, options = {}) {
+  const knowledgeContext = options.knowledgeContext
+    ? `\n\nUse the Rutgers engineering reference below when it is relevant. Prefer this reference over model guesses, and if the reference is incomplete, clearly say what is known versus uncertain.\n\nRutgers engineering reference:\n${options.knowledgeContext}`
+    : '';
   const systemPrompt =
-    'You are Scarlet AI, a concise and helpful assistant for the Rutgers community. Provide practical, safe, student-friendly answers.';
+    `You are Scarlet AI, a concise and helpful assistant for the Rutgers community. Provide practical, safe, student-friendly answers.${knowledgeContext}`;
 
   const history = sanitizeMessages(messages);
   const promptMessages = [{ role: 'system', content: systemPrompt }, ...history];
