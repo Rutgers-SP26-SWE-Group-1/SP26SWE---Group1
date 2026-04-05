@@ -11,6 +11,12 @@ type Message = {
   content: string;
 };
 
+type MachineOption = {
+  value: 'auto' | 'ollama' | 'openai' | 'gemini' | 'fallback';
+  label: string;
+  help: string;
+};
+
 type Conversation = {
   id: string;
   title: string;
@@ -20,6 +26,18 @@ type Conversation = {
 };
 
 const STORAGE_KEY = 'scarlet-ai-conversations';
+const MACHINE_STORAGE_KEY = 'scarlet-ai-machine';
+const MACHINE_OPTIONS: MachineOption[] = [
+  { value: 'auto', label: 'Auto Select', help: 'Use the default configured AI machine.' },
+  { value: 'ollama', label: 'Ollama', help: 'Use the local Ollama machine if available.' },
+  { value: 'openai', label: 'OpenAI', help: 'Use the OpenAI-backed machine.' },
+  { value: 'gemini', label: 'Gemini', help: 'Use the Gemini-backed machine.' },
+  { value: 'fallback', label: 'Demo Fallback', help: 'Use the built-in fallback reply mode.' },
+];
+
+function isMachineOption(value: string): value is MachineOption['value'] {
+  return MACHINE_OPTIONS.some((option) => option.value === value);
+}
 
 function createUntitledConversation(): Conversation {
   const now = new Date().toISOString();
@@ -49,6 +67,7 @@ export default function ChatHub() {
   const [userMajor, setUserMajor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
+  const [selectedMachine, setSelectedMachine] = useState<MachineOption['value']>('auto');
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -100,12 +119,23 @@ export default function ChatHub() {
   }, []);
 
   useEffect(() => {
+    const storedMachine = window.localStorage.getItem(MACHINE_STORAGE_KEY);
+    if (storedMachine && isMachineOption(storedMachine)) {
+      setSelectedMachine(storedMachine);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!hasLoadedLocalState || conversations.length === 0) {
       return;
     }
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations, hasLoadedLocalState]);
+
+  useEffect(() => {
+    window.localStorage.setItem(MACHINE_STORAGE_KEY, selectedMachine);
+  }, [selectedMachine]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -177,6 +207,7 @@ export default function ChatHub() {
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
           userName,
+          machine: selectedMachine,
         }),
       });
 
@@ -221,6 +252,9 @@ export default function ChatHub() {
       setIsGenerating(false);
     }
   };
+
+  const selectedMachineDetails =
+    MACHINE_OPTIONS.find((option) => option.value === selectedMachine) ?? MACHINE_OPTIONS[0];
 
   return (
     <div className="flex h-screen overflow-hidden bg-app-surface text-app-foreground">
@@ -282,35 +316,76 @@ export default function ChatHub() {
       </aside>
 
       <main className="flex-1 flex flex-col relative z-10">
-        <header className="flex justify-between items-center px-6 py-3 bg-app-surface border-b border-app-border gap-4">
-          <button
-            onClick={handleNewChat}
-            className="md:hidden bg-app-surface-subtle border border-app-border text-app-foreground px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
-          >
-            New Chat
-          </button>
+        <header className="border-b border-app-border bg-app-surface px-6 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <button
+              onClick={handleNewChat}
+              className="md:hidden bg-app-surface-subtle border border-app-border text-app-foreground px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
+            >
+              New Chat
+            </button>
 
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-app-muted">
-            {provider ? `Provider: ${provider}` : 'Ready for chat'}
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-app-muted">
+              {provider ? `Provider: ${provider}` : 'Ready for chat'}
+            </div>
+
+            <Link href={profileHref} className="flex items-center gap-3 group">
+              <div className="text-right hidden sm:block">
+                <p className="text-[11px] font-black text-app-foreground leading-none group-hover:text-scarlet transition-colors uppercase">
+                  {userName}
+                </p>
+                <p className="text-[9px] text-app-muted font-bold uppercase mt-1">{userMajor}</p>
+              </div>
+              <div className="w-9 h-9 rounded-full bg-app-surface-muted border border-app-border group-hover:border-scarlet flex items-center justify-center overflow-hidden">
+                <Image
+                  src="/websiteicon.png"
+                  alt="Profile"
+                  width={20}
+                  height={20}
+                  className="opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-100 transition-all"
+                />
+              </div>
+            </Link>
           </div>
 
-          <Link href={profileHref} className="flex items-center gap-3 group">
-            <div className="text-right hidden sm:block">
-              <p className="text-[11px] font-black text-app-foreground leading-none group-hover:text-scarlet transition-colors uppercase">
-                {userName}
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-muted">
+                AI Machine
               </p>
-              <p className="text-[9px] text-app-muted font-bold uppercase mt-1">{userMajor}</p>
+              <p className="mt-1 text-xs text-app-muted">{selectedMachineDetails.help}</p>
             </div>
-            <div className="w-9 h-9 rounded-full bg-app-surface-muted border border-app-border group-hover:border-scarlet flex items-center justify-center overflow-hidden">
-              <Image
-                src="/websiteicon.png"
-                alt="Profile"
-                width={20}
-                height={20}
-                className="opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-100 transition-all"
-              />
+            <div className="relative w-full sm:w-64">
+              <select
+                value={selectedMachine}
+                onChange={(event) =>
+                  setSelectedMachine(event.target.value as MachineOption['value'])
+                }
+                className="w-full appearance-none rounded-xl border border-app-border-strong bg-app-surface-subtle px-4 py-3 pr-10 text-sm font-semibold text-app-foreground outline-none transition focus:border-scarlet"
+                aria-label="Choose AI machine"
+              >
+                {MACHINE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-muted"
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M5 7.5 10 12.5 15 7.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </div>
-          </Link>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">

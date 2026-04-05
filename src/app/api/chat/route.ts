@@ -17,12 +17,15 @@ type ChatRequestBody = {
   conversationId?: string;
   messages?: ChatMessage[];
   userName?: string;
+  machine?: string;
 };
 
 type ProviderResult = {
   content: string;
   provider: 'ollama' | 'openai' | 'gemini' | 'fallback';
 };
+
+type ProviderPreference = 'auto' | 'ollama' | 'openai' | 'gemini' | 'fallback';
 
 function coerceChatMessages(messages: ReturnType<typeof sanitizeMessages>): ChatMessage[] {
   return messages.map((message) => ({
@@ -154,20 +157,33 @@ async function requestOllama(messages: ChatMessage[]): Promise<ProviderResult | 
   };
 }
 
-function getProviderPreference() {
-  return (process.env.AI_PROVIDER || 'ollama').toLowerCase();
+function getProviderPreference(machine?: string): ProviderPreference {
+  const preference = (machine || process.env.AI_PROVIDER || 'ollama').toLowerCase();
+
+  if (
+    preference === 'auto' ||
+    preference === 'ollama' ||
+    preference === 'openai' ||
+    preference === 'gemini' ||
+    preference === 'fallback'
+  ) {
+    return preference;
+  }
+
+  return 'auto';
 }
 
 async function generateAssistantReply(
   message: string,
   messages: ChatMessage[],
-  userName?: string
+  userName?: string,
+  machine?: string
 ): Promise<ProviderResult> {
   const payload = buildProviderPayload(messages, message, { userName }) as {
     messages: ChatMessage[];
     userName: string | null;
   };
-  const providerPreference = getProviderPreference();
+  const providerPreference = getProviderPreference(machine);
 
   if (providerPreference === 'fallback') {
     return {
@@ -232,7 +248,8 @@ export async function POST(request: Request) {
     const assistantReply = await generateAssistantReply(
       validation.normalizedMessage,
       messages,
-      body?.userName
+      body?.userName,
+      body?.machine
     );
 
     return NextResponse.json({
