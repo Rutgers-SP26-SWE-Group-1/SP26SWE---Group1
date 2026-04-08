@@ -4,11 +4,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import LogoutButton from '@/components/LogoutButton';
+import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
 import { supabase } from '@/lib/supabase';
 
 type Message = {
   role: 'user' | 'assistant';
   content: string;
+  durationMs?: number;
+  modelId?: string;
+  modelLabel?: string;
+  modelDescription?: string;
 };
 
 type Conversation = {
@@ -48,8 +53,8 @@ export default function ChatHub() {
   const [userName, setUserName] = useState<string | null>(null);
   const [userMajor, setUserMajor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [provider, setProvider] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -100,7 +105,12 @@ export default function ChatHub() {
   }, []);
 
   useEffect(() => {
-    if (!hasLoadedLocalState || conversations.length === 0) {
+    if (!hasLoadedLocalState) {
+      return;
+    }
+
+    if (conversations.length === 0) {
+      window.localStorage.removeItem(STORAGE_KEY);
       return;
     }
 
@@ -130,12 +140,52 @@ export default function ChatHub() {
     setActiveConversationId(freshConversation.id);
     setInput('');
     setError(null);
-    setProvider(null);
   };
 
   const handleSelectConversation = (conversationId: string) => {
     setActiveConversationId(conversationId);
     setError(null);
+  };
+
+  const handleDeleteConversation = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    conversationId: string
+  ) => {
+    e.stopPropagation();
+
+    const conversationToDelete = conversations.find((conversation) => conversation.id === conversationId);
+    if (!conversationToDelete) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(
+      `Are you sure you want to delete "${conversationToDelete.title}"?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    const remainingConversations = conversations.filter(
+      (conversation) => conversation.id !== conversationId
+    );
+
+    if (remainingConversations.length === 0) {
+      const freshConversation = createUntitledConversation();
+      setConversations([freshConversation]);
+      setActiveConversationId(freshConversation.id);
+      setInput('');
+      setError(null);
+      return;
+    }
+
+    setConversations(remainingConversations);
+
+    if (activeConversationId === conversationId) {
+      setActiveConversationId(remainingConversations[0].id);
+      setInput('');
+      setError(null);
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -176,6 +226,7 @@ export default function ChatHub() {
           message: trimmedInput,
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
+          modelId: selectedModelId,
           userName,
         }),
       });
@@ -183,15 +234,26 @@ export default function ChatHub() {
       const data = (await response.json()) as {
         content?: string;
         error?: string;
-        provider?: string;
         conversationId?: string;
+        durationMs?: number;
+        modelId?: string;
+        modelLabel?: string;
+        modelDescription?: string;
       };
 
       if (!response.ok || !data.content) {
         throw new Error(data.error || 'Scarlet AI could not generate a response.');
       }
 
-      const assistantMessage: Message = { role: 'assistant', content: data.content };
+      const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: data.content,
+        durationMs: data.durationMs,
+        modelId: data.modelId ?? assistantModel.id,
+        modelLabel: data.modelLabel ?? assistantModel.label,
+        modelDescription: data.modelDescription ?? assistantModel.description,
+      };
 
       setConversations((current) =>
         current
@@ -212,7 +274,6 @@ export default function ChatHub() {
       if (data.conversationId) {
         setActiveConversationId(data.conversationId);
       }
-      setProvider(data.provider || 'fallback');
     } catch (requestError) {
       const message =
         requestError instanceof Error ? requestError.message : 'Unable to send your message.';
@@ -222,9 +283,23 @@ export default function ChatHub() {
     }
   };
 
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey) {
+      return;
+    }
+
+    e.preventDefault();
+
+    if (!input.trim() || !activeConversation || isGenerating) {
+      return;
+    }
+
+    void handleSendMessage(e);
+  };
+
   return (
-    <div className="flex h-screen overflow-hidden bg-white text-slate-900">
-      <aside className="w-72 h-screen bg-slate-50 border-r border-slate-200 flex-col p-4 hidden md:flex relative z-50 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[var(--card-bg)] text-[var(--text-primary)] transition-colors">
+      <aside className="w-72 h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] flex-col p-4 hidden md:flex relative z-50 overflow-hidden transition-colors">
         <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
           <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
           <span className="font-black text-xl tracking-tight">
@@ -234,43 +309,59 @@ export default function ChatHub() {
 
         <button
           onClick={handleNewChat}
-          className="w-full py-3 mb-6 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-scarlet hover:text-scarlet transition-all"
+          className="w-full py-3 mb-6 border-2 border-dashed border-[var(--input-border)] rounded-xl text-[var(--text-secondary)] font-bold hover:border-scarlet hover:text-scarlet transition-all"
         >
           + New Chat
         </button>
 
         <div className="flex-1 min-h-0 overflow-hidden">
-          <p className="font-bold uppercase tracking-widest text-[10px] text-slate-400 mb-4">
+          <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)] mb-4">
             Recent History
           </p>
 
           <div className="h-full overflow-y-auto pr-1 space-y-2">
             {conversations.length === 0 && (
-              <div className="text-sm text-slate-500 italic">No recent chats found.</div>
+              <div className="text-sm text-[var(--text-secondary)] italic">No recent chats found.</div>
             )}
 
             {conversations.map((conversation) => (
-              <button
+              <div
                 key={conversation.id}
-                onClick={() => handleSelectConversation(conversation.id)}
-                className={`w-full text-left rounded-xl px-3 py-3 border transition-all ${
+                className={`rounded-xl border transition-all ${
                   conversation.id === activeConversationId
-                    ? 'bg-white border-scarlet/30 shadow-sm'
-                    : 'bg-transparent border-transparent hover:bg-white hover:border-slate-200'
+                    ? 'bg-[var(--card-bg)] border-scarlet/30 shadow-sm'
+                    : 'bg-transparent border-transparent hover:bg-[var(--card-bg)] hover:border-[var(--card-border)]'
                 }`}
               >
-                <p className="text-sm font-semibold text-slate-900 line-clamp-2">
-                  {conversation.title}
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {new Date(conversation.updatedAt).toLocaleString()}
-                </p>
-              </button>
+                <div className="flex items-start gap-3 px-3 py-3">
+                  <button
+                    onClick={() => handleSelectConversation(conversation.id)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">
+                        {conversation.title}
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                        {new Date(conversation.updatedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteConversation(e, conversation.id)}
+                    aria-label={`Delete ${conversation.title}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--message-error-bg)] hover:text-scarlet"
+                  >
+                    X
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-auto pt-4 border-t border-slate-200">
+        <div className="mt-auto pt-4 border-t border-[var(--card-border)]">
           {userEmail ? (
             <LogoutButton />
           ) : (
@@ -282,36 +373,77 @@ export default function ChatHub() {
       </aside>
 
       <main className="flex-1 flex flex-col relative z-10">
-        <header className="flex justify-between items-center px-6 py-3 bg-white border-b border-slate-100 gap-4">
+        <header className="grid grid-cols-[auto_1fr_auto] items-center px-6 py-3 bg-[var(--card-bg)] border-b border-[var(--card-border)] gap-4 transition-colors">
           <button
             onClick={handleNewChat}
-            className="md:hidden bg-slate-100 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
+            className="md:hidden bg-[var(--surface-soft)] text-[var(--text-secondary)] px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors"
           >
             New Chat
           </button>
 
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
-            {provider ? `Provider: ${provider}` : 'Ready for chat'}
+          <div className="flex justify-center">
+            <div className="hidden md:flex items-end gap-6">
+              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] shrink-0 pb-2">
+                Ready for chat
+              </div>
+              <label className="flex flex-col gap-1">
+                <span className="text-[9px] font-black uppercase tracking-[0.22em] text-[var(--text-muted)] text-center">
+                  AI Model
+                </span>
+                <select
+                  value={selectedModelId}
+                  onChange={(e) => setSelectedModelId(e.target.value)}
+                  className="min-w-[190px] rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] px-3 py-2 text-sm font-semibold text-[var(--text-primary)] outline-none transition-all focus:border-scarlet"
+                >
+                  {CHAT_MODEL_OPTIONS.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {`${model.label} - ${model.description}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
-          <Link href={profileHref} className="flex items-center gap-3 group">
-            <div className="text-right hidden sm:block">
-              <p className="text-[11px] font-black text-slate-900 leading-none group-hover:text-scarlet transition-colors uppercase">
-                {userName}
-              </p>
-              <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{userMajor}</p>
-            </div>
-            <div className="w-9 h-9 rounded-full bg-slate-50 border border-slate-200 group-hover:border-scarlet flex items-center justify-center overflow-hidden">
-              <Image
-                src="/websiteicon.png"
-                alt="Profile"
-                width={20}
-                height={20}
-                className="opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-100 transition-all"
-              />
-            </div>
-          </Link>
+          <div className="flex justify-end">
+            <Link href={profileHref} className="flex items-center gap-3 group">
+              <div className="text-right hidden sm:block">
+                <p className="text-[11px] font-black text-[var(--text-primary)] leading-none group-hover:text-scarlet transition-colors uppercase">
+                  {userName}
+                </p>
+                <p className="text-[9px] text-[var(--text-muted)] font-bold uppercase mt-1">{userMajor}</p>
+              </div>
+              <div className="w-9 h-9 rounded-full bg-[var(--surface-soft)] border border-[var(--card-border)] group-hover:border-scarlet flex items-center justify-center overflow-hidden transition-colors">
+                <Image
+                  src="/websiteicon.png"
+                  alt="Profile"
+                  width={20}
+                  height={20}
+                  className="opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-100 transition-all"
+                />
+              </div>
+            </Link>
+          </div>
         </header>
+
+        <div className="md:hidden px-6 py-3 bg-[var(--card-bg)] border-b border-[var(--card-border)] transition-colors">
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-black uppercase tracking-[0.22em] text-[var(--text-muted)]">
+              AI Model
+            </span>
+            <select
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+              className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-semibold text-[var(--text-primary)] outline-none transition-all focus:border-scarlet"
+            >
+              {CHAT_MODEL_OPTIONS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {`${model.label} - ${model.description}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {activeConversation && activeConversation.messages.length === 0 && (
@@ -320,7 +452,7 @@ export default function ChatHub() {
               <h2 className="text-2xl font-black mt-4 uppercase tracking-tighter italic">
                 How can I help you, {userName?.split(' ')[0] || 'Scarlet Knight'}?
               </h2>
-              <p className="max-w-xl mt-3 text-sm text-slate-500 font-medium">
+              <p className="max-w-xl mt-3 text-sm text-[var(--text-secondary)] font-medium">
                 Ask about Rutgers life, software engineering, study support, or general questions.
               </p>
             </div>
@@ -334,18 +466,29 @@ export default function ChatHub() {
               }`}
             >
               {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full border border-slate-200 flex-shrink-0 flex items-center justify-center bg-white shadow-sm">
+                <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm transition-colors">
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
                 </div>
               )}
-              <div
-                className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl shadow-sm font-medium whitespace-pre-wrap ${
-                  msg.role === 'user'
-                    ? 'bg-[#cc0033] text-white rounded-tr-none'
-                    : 'bg-slate-100 text-slate-900 border border-slate-200 rounded-tl-none'
-                }`}
-              >
-                {msg.content}
+              <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div
+                  className={`p-4 rounded-2xl shadow-sm font-medium whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'bg-[#cc0033] text-white rounded-tr-none'
+                      : 'bg-[var(--surface-soft)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'
+                  }`}
+                >
+                  {msg.content}
+                </div>
+                {msg.role === 'assistant' && msg.modelLabel && (
+                  <p className="mt-2 px-1 text-[10px] font-black uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                    {msg.modelLabel}
+                    {msg.modelDescription ? ` • ${msg.modelDescription}` : ''}
+                    {typeof msg.durationMs === 'number' && msg.durationMs > 0
+                      ? ` • ${(msg.durationMs / 1000).toFixed(1)}s`
+                      : ''}
+                  </p>
+                )}
               </div>
             </div>
           ))}
@@ -354,25 +497,25 @@ export default function ChatHub() {
             <div className="flex items-start gap-3">
               <div className="relative w-9 h-9 flex-shrink-0">
                 <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
-                <div className="w-full h-full rounded-full border border-slate-200 flex items-center justify-center bg-white">
+                <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)] transition-colors">
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
                 </div>
               </div>
-              <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 min-w-[200px]">
+              <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 min-w-[200px] transition-colors">
                 <div className="flex gap-1.5 items-center">
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest animate-pulse">
-                  Analyzing Prompt...
+                <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
+                  {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
                 </span>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="max-w-xl rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+            <div className="max-w-xl rounded-2xl border border-[var(--message-error-border)] bg-[var(--message-error-bg)] px-4 py-3 text-sm font-semibold text-[var(--message-error-text)]">
               {error}
             </div>
           )}
@@ -380,14 +523,15 @@ export default function ChatHub() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-6 bg-white border-t border-slate-100">
+        <div className="p-6 bg-[var(--card-bg)] border-t border-[var(--card-border)] transition-colors">
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto relative">
             <textarea
               ref={composerRef}
               placeholder={`Hello ${userName?.split(' ')[0] || 'there'}, ask Scarlet AI anything...`}
-              className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 pr-28 bg-slate-50 border-2 border-slate-300 text-slate-900 rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-slate-400 font-medium leading-6"
+              className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 pr-28 bg-[var(--input-bg)] border-2 border-[var(--input-border)] text-[var(--text-primary)] rounded-2xl focus:border-scarlet outline-none transition-all placeholder:text-[var(--input-placeholder)] font-medium leading-6"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleComposerKeyDown}
               maxLength={2000}
               rows={1}
             />
@@ -401,8 +545,8 @@ export default function ChatHub() {
               </span>
             </button>
           </form>
-          <p className="text-[10px] text-center text-slate-500 mt-4 font-bold uppercase tracking-[0.2em]">
-            Official Interface • Rutgers Software Engineering
+          <p className="text-[10px] text-center text-[var(--text-secondary)] mt-4 font-bold uppercase tracking-[0.2em]">
+            {`${getChatModelOption(selectedModelId).label} • ${getChatModelOption(selectedModelId).description}`}
           </p>
         </div>
       </main>

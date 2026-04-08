@@ -85,7 +85,7 @@ function LandingPage() {
   }, [step, currentTyping, chatIdx, messages.length, isTyping]);
 
   return (
-    <main className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-6 py-16 selection:bg-scarlet/20">
+    <main className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center px-6 py-16 selection:bg-scarlet/20 transition-colors">
 
       {/* Hero */}
       <div
@@ -99,7 +99,7 @@ function LandingPage() {
         <div className="relative w-56 h-56 mb-4">
           <Image src="/landingicon.png" alt="Logo" fill className="object-contain" priority />
         </div>
-        <p className="text-[#86868b] text-base font-medium tracking-tight max-w-sm leading-relaxed">
+        <p className="text-[var(--text-secondary)] text-base font-medium tracking-tight max-w-sm leading-relaxed">
           The official AI interface for the Rutgers community.
         </p>
       </div>
@@ -115,7 +115,7 @@ function LandingPage() {
         }}
       >
         <div
-          className="rounded-[27px] bg-white p-7"
+          className="rounded-[27px] bg-[var(--card-bg)] border border-[var(--card-border)] p-7 transition-colors"
           style={{ boxShadow: '0 4px 60px -16px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.04)' }}
         >
         <div className="flex flex-col space-y-5 min-h-[220px]">
@@ -131,13 +131,13 @@ function LandingPage() {
                 </div>
               ) : (
                 <>
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--surface-accent)] flex items-center justify-center shadow-sm transition-colors">
                     <div className="relative w-[18px] h-[18px]">
                       <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm">
-                    <span className="text-[#1d1d1f] font-normal">{msg.text}</span>
+                  <div className="bg-[var(--surface-accent)] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm transition-colors">
+                    <span className="text-[var(--surface-accent-text)] font-normal">{msg.text}</span>
                   </div>
                 </>
               )}
@@ -162,31 +162,31 @@ function LandingPage() {
               )}
               {step === 3 && (
                 <div className="flex items-end gap-2.5">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--surface-accent)] flex items-center justify-center shadow-sm transition-colors">
                     <div className="relative w-[18px] h-[18px]">
                       <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] min-h-[44px] shadow-sm">
+                  <div className="bg-[var(--surface-accent)] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] min-h-[44px] shadow-sm transition-colors">
                     <div className="flex gap-[5px] items-center h-[22px]">
-                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce [animation-delay:0.15s]"></div>
-                      <div className="w-2 h-2 bg-[#8e8e93] rounded-full animate-bounce [animation-delay:0.3s]"></div>
+                      <div className="w-2 h-2 bg-[var(--text-muted)] rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-[var(--text-muted)] rounded-full animate-bounce [animation-delay:0.15s]"></div>
+                      <div className="w-2 h-2 bg-[var(--text-muted)] rounded-full animate-bounce [animation-delay:0.3s]"></div>
                     </div>
                   </div>
                 </div>
               )}
               {step === 4 && (
                 <div className="flex items-end gap-2.5">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8e8ed] flex items-center justify-center shadow-sm">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--surface-accent)] flex items-center justify-center shadow-sm transition-colors">
                     <div className="relative w-[18px] h-[18px]">
                       <Image src="/overlayicon.png" alt="AI" fill className="object-contain" />
                     </div>
                   </div>
-                  <div className="bg-[#e8e8ed] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm">
-                    <span className="text-[#1d1d1f] font-normal">
+                  <div className="bg-[var(--surface-accent)] px-5 py-3 rounded-[22px] rounded-bl-sm text-[15px] leading-[1.45] max-w-[80%] shadow-sm transition-colors">
+                    <span className="text-[var(--surface-accent-text)] font-normal">
                       {currentTyping}
-                      <span className="inline-block w-[2px] h-[18px] bg-[#8e8e93] ml-0.5 animate-pulse align-text-bottom" />
+                      <span className="inline-block w-[2px] h-[18px] bg-[var(--text-muted)] ml-0.5 animate-pulse align-text-bottom" />
                     </span>
                   </div>
                 </div>
@@ -215,20 +215,20 @@ function LandingPage() {
         <div className="flex gap-3 w-full">
           <Link
             href="/signup"
-            className="flex-1 bg-white text-scarlet text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight border border-[#d2d2d7] hover:bg-[#f5f5f7] active:scale-[0.98] transition-all duration-200"
+            className="flex-1 bg-[var(--card-bg)] text-scarlet text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight border border-[var(--card-border)] hover:bg-[var(--surface-soft)] active:scale-[0.98] transition-all duration-200"
           >
             CREATE ACCOUNT
           </Link>
           <Link
             href="/chat"
-            className="flex-1 bg-[#1d1d1f] text-white text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight hover:bg-[#333336] active:scale-[0.98] transition-all duration-200"
+            className="flex-1 bg-[var(--button-neutral)] text-[var(--button-neutral-text)] text-center py-3.5 rounded-2xl font-bold text-[15px] tracking-tight hover:bg-[var(--button-neutral-hover)] active:scale-[0.98] transition-all duration-200"
           >
             GUEST ACCESS
           </Link>
         </div>
       </div>
 
-      <p className="mt-12 text-[11px] text-[#86868b] font-medium tracking-widest uppercase">
+      <p className="mt-12 text-[11px] text-[var(--text-secondary)] font-medium tracking-widest uppercase">
         Rutgers University Restricted Access
       </p>
     </main>

@@ -55,6 +55,34 @@ function detectTopic(message) {
   return 'general';
 }
 
+function isSimplePrompt(message) {
+  const normalized = normalizeMessage(message).toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const compact = normalized.replace(/[^\w\s]/g, '').trim();
+  const wordCount = compact ? compact.split(/\s+/).length : 0;
+  const quickPhrases = new Set([
+    'hello',
+    'hi',
+    'hey',
+    'yo',
+    'sup',
+    'good morning',
+    'good afternoon',
+    'good evening',
+    'how are you',
+    'whats up',
+    'what is up',
+    'thanks',
+    'thank you',
+  ]);
+
+  return wordCount > 0 && wordCount <= 6 && quickPhrases.has(compact);
+}
+
 function buildFallbackReply(message, options = {}) {
   const topic = detectTopic(message);
   const firstName = options.userName ? String(options.userName).trim().split(/\s+/)[0] : null;
@@ -77,8 +105,10 @@ function buildFallbackReply(message, options = {}) {
 }
 
 function buildProviderPayload(messages, message, options = {}) {
-  const systemPrompt =
-    'You are Scarlet AI, a concise and helpful assistant for the Rutgers community. Provide practical, safe, student-friendly answers.';
+  const simplePromptMode = Boolean(options.simplePromptMode);
+  const systemPrompt = simplePromptMode
+    ? 'You are Scarlet AI. For casual greetings or tiny prompts, respond in one short sentence with no extra explanation.'
+    : 'You are Scarlet AI, a concise and helpful assistant for the Rutgers community. Provide practical, safe, student-friendly answers.';
 
   const history = sanitizeMessages(messages);
   const promptMessages = [{ role: 'system', content: systemPrompt }, ...history];
@@ -90,6 +120,7 @@ function buildProviderPayload(messages, message, options = {}) {
   return {
     messages: promptMessages,
     userName: options.userName || null,
+    simplePromptMode,
   };
 }
 
@@ -98,6 +129,7 @@ module.exports = {
   buildFallbackReply,
   buildProviderPayload,
   createConversationId,
+  isSimplePrompt,
   sanitizeMessages,
   validateChatRequest,
 };

@@ -3,9 +3,11 @@ import {
   buildFallbackReply,
   buildProviderPayload,
   createConversationId,
+  isSimplePrompt,
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
+import { getChatModelOption } from '@/lib/chat-models';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -16,12 +18,16 @@ type ChatRequestBody = {
   message?: string;
   conversationId?: string;
   messages?: ChatMessage[];
+  modelId?: string;
   userName?: string;
 };
 
 type ProviderResult = {
   content: string;
-  provider: 'ollama' | 'openai' | 'gemini' | 'fallback';
+  durationMs: number;
+  modelId: string;
+  modelLabel: string;
+  modelDescription: string;
 };
 
 function coerceChatMessages(messages: ReturnType<typeof sanitizeMessages>): ChatMessage[] {
@@ -31,89 +37,16 @@ function coerceChatMessages(messages: ReturnType<typeof sanitizeMessages>): Chat
   }));
 }
 
-async function requestOpenAI(messages: ChatMessage[]): Promise<ProviderResult | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
-      messages,
-      temperature: 0.7,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI request failed with status ${response.status}.`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('OpenAI returned an empty response.');
-  }
-
-  return {
-    content: content.trim(),
-    provider: 'openai',
-  };
-}
-
-async function requestGemini(messages: ChatMessage[]): Promise<ProviderResult | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${
-      process.env.GEMINI_MODEL || 'gemini-1.5-flash'
-    }:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: messages.map((message) => ({
-          role: message.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: message.content }],
-        })),
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Gemini request failed with status ${response.status}.`);
-  }
-
-  const data = await response.json();
-  const content = data?.candidates?.[0]?.content?.parts
-    ?.map((part: { text?: string }) => part.text || '')
-    .join('')
-    .trim();
-
-  if (!content) {
-    throw new Error('Gemini returned an empty response.');
-  }
-
-  return {
-    content,
-    provider: 'gemini',
-  };
-}
-
-async function requestOllama(messages: ChatMessage[]): Promise<ProviderResult | null> {
+async function requestOllama(
+  messages: ChatMessage[],
+  modelId?: string,
+  options?: { simplePromptMode?: boolean }
+): Promise<ProviderResult | null> {
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-  const model = process.env.OLLAMA_MODEL || 'gemma3:4b';
+  const selectedModel = getChatModelOption(modelId);
+  const model = selectedModel.ollamaModel;
+  const startTime = Date.now();
+  const simplePromptMode = Boolean(options?.simplePromptMode);
 
   let response: Response;
 
@@ -127,6 +60,15 @@ async function requestOllama(messages: ChatMessage[]): Promise<ProviderResult | 
         model,
         messages,
         stream: false,
+        keep_alive: '10m',
+        options: simplePromptMode
+          ? {
+              num_predict: 48,
+              temperature: 0.2,
+            }
+          : {
+              temperature: 0.7,
+            },
       }),
     });
   } catch {
@@ -150,66 +92,40 @@ async function requestOllama(messages: ChatMessage[]): Promise<ProviderResult | 
 
   return {
     content: content.trim(),
-    provider: 'ollama',
+    durationMs: Date.now() - startTime,
+    modelId: selectedModel.id,
+    modelLabel: selectedModel.label,
+    modelDescription: selectedModel.description,
   };
-}
-
-function getProviderPreference() {
-  return (process.env.AI_PROVIDER || 'ollama').toLowerCase();
 }
 
 async function generateAssistantReply(
   message: string,
   messages: ChatMessage[],
+  modelId?: string,
   userName?: string
 ): Promise<ProviderResult> {
-  const payload = buildProviderPayload(messages, message, { userName }) as {
+  const simplePromptMode = isSimplePrompt(message);
+  const payload = buildProviderPayload(messages, message, {
+    userName,
+    simplePromptMode,
+  }) as {
     messages: ChatMessage[];
     userName: string | null;
+    simplePromptMode?: boolean;
   };
-  const providerPreference = getProviderPreference();
-
-  if (providerPreference === 'fallback') {
-    return {
-      content: buildFallbackReply(message, { userName }),
-      provider: 'fallback',
-    };
-  }
+  const selectedModel = getChatModelOption(modelId);
 
   try {
-    if (providerPreference === 'ollama') {
-      return (
-        (await requestOllama(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
-          provider: 'fallback',
-        }
-      );
-    }
-
-    if (providerPreference === 'openai') {
-      return (
-        (await requestOpenAI(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
-          provider: 'fallback',
-        }
-      );
-    }
-
-    if (providerPreference === 'gemini') {
-      return (
-        (await requestGemini(payload.messages)) || {
-          content: buildFallbackReply(message, { userName }),
-          provider: 'fallback',
-        }
-      );
-    }
-
     return (
-      (await requestOllama(payload.messages)) ||
-      (await requestOpenAI(payload.messages)) ||
-      (await requestGemini(payload.messages)) || {
+      (await requestOllama(payload.messages, selectedModel.id, {
+        simplePromptMode: payload.simplePromptMode,
+      })) || {
         content: buildFallbackReply(message, { userName }),
-        provider: 'fallback',
+        durationMs: 0,
+        modelId: selectedModel.id,
+        modelLabel: selectedModel.label,
+        modelDescription: `${selectedModel.description} fallback`,
       }
     );
   } catch (error) {
@@ -232,13 +148,17 @@ export async function POST(request: Request) {
     const assistantReply = await generateAssistantReply(
       validation.normalizedMessage,
       messages,
+      body?.modelId,
       body?.userName
     );
 
     return NextResponse.json({
       conversationId,
       content: assistantReply.content,
-      provider: assistantReply.provider,
+      durationMs: assistantReply.durationMs,
+      modelId: assistantReply.modelId,
+      modelLabel: assistantReply.modelLabel,
+      modelDescription: assistantReply.modelDescription,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

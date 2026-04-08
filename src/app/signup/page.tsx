@@ -91,20 +91,20 @@ export default function SignUp() {
   };
 
   const inputBase =
-    'w-full h-[50px] px-4 bg-[#f5f5f7] text-[#1d1d1f] text-[15px] rounded-xl border border-[#d2d2d7] outline-none transition-all duration-200 placeholder:text-[#8e8e93] focus:border-scarlet focus:ring-2 focus:ring-scarlet/20';
+    'w-full h-[50px] px-4 bg-[var(--input-bg)] text-[var(--text-primary)] text-[15px] rounded-xl border border-[var(--input-border)] outline-none transition-all duration-200 placeholder:text-[var(--input-placeholder)] focus:border-scarlet focus:ring-2 focus:ring-scarlet/20';
 
   const selectBase = (hasValue: boolean) =>
-    `${inputBase} appearance-none cursor-pointer ${hasValue ? '' : 'text-[#8e8e93]'}`;
+    `${inputBase} appearance-none cursor-pointer ${hasValue ? '' : 'text-[var(--input-placeholder)]'}`;
 
   return (
-    <main className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4 py-12">
+    <main className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center px-4 py-12 transition-colors">
       <div
-        className="w-full max-w-[440px] bg-white rounded-3xl p-8 sm:p-10"
+        className="w-full max-w-[440px] bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl p-8 sm:p-10 transition-colors"
         style={{ boxShadow: '0 4px 60px -16px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.04)' }}
       >
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-[13px] text-[#86868b] font-medium hover:text-scarlet transition-colors duration-200 mb-8"
+          className="inline-flex items-center gap-1 text-[13px] text-[var(--text-secondary)] font-medium hover:text-scarlet transition-colors duration-200 mb-8"
         >
           <svg width="7" height="12" viewBox="0 0 7 12" fill="none" className="mt-px">
             <path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -113,18 +113,18 @@ export default function SignUp() {
         </Link>
 
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-[#f5f5f7] flex items-center justify-center mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-[var(--surface-soft)] flex items-center justify-center mb-4 transition-colors">
             <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
           </div>
-          <h2 className="text-[26px] font-bold text-[#1d1d1f] tracking-tight">Join the Wave</h2>
-          <p className="text-[14px] text-[#86868b] mt-1">Create your Scarlet AI account</p>
+          <h2 className="text-[26px] font-bold text-[var(--text-primary)] tracking-tight">Join the Wave</h2>
+          <p className="text-[14px] text-[var(--text-secondary)] mt-1">Create your Scarlet AI account</p>
         </div>
 
         <form onSubmit={handleSignUp} className="space-y-4">
           {/* First / Last Name */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">First Name</label>
+              <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">First Name</label>
               <input
                 type="text" placeholder="Ved"
                 className={inputBase}
@@ -133,7 +133,7 @@ export default function SignUp() {
               />
             </div>
             <div>
-              <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Last Name</label>
+              <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Last Name</label>
               <input
                 type="text" placeholder="Patel"
                 className={inputBase}
@@ -146,7 +146,7 @@ export default function SignUp() {
           {/* Major / Year */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Major</label>
+              <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Major</label>
               <div className="relative">
                 <select
                   className={selectBase(!!major)}
@@ -156,13 +156,13 @@ export default function SignUp() {
                   <option value="" disabled>Select Major</option>
                   {RUTGERS_MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <svg className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[#8e8e93]" width="10" height="6" viewBox="0 0 10 6" fill="none">
+                <svg className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--input-placeholder)]" width="10" height="6" viewBox="0 0 10 6" fill="none">
                   <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
             </div>
             <div>
-              <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Year</label>
+              <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Year</label>
               <div className="relative">
                 <select
                   className={selectBase(!!year)}
@@ -172,7 +172,7 @@ export default function SignUp() {
                   <option value="" disabled>Select</option>
                   {CLASS_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
-                <svg className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[#8e8e93]" width="10" height="6" viewBox="0 0 10 6" fill="none">
+                <svg className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--input-placeholder)]" width="10" height="6" viewBox="0 0 10 6" fill="none">
                   <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
@@ -181,7 +181,7 @@ export default function SignUp() {
 
           {/* Email */}
           <div>
-            <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Rutgers Email</label>
+            <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Rutgers Email</label>
             <input
               type="email" placeholder="netid@scarletmail.rutgers.edu"
               className={inputBase}
@@ -192,7 +192,7 @@ export default function SignUp() {
 
           {/* Password */}
           <div>
-            <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Password</label>
+            <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Password</label>
             <input
               type="password"
               placeholder="8+ chars, 1 number, 1 symbol"
@@ -226,7 +226,7 @@ export default function SignUp() {
 
           {/* Confirm Password */}
           <div>
-            <label className="block text-[13px] font-semibold text-[#1d1d1f] mb-1.5 ml-1">Confirm Password</label>
+            <label className="block text-[13px] font-semibold text-[var(--text-primary)] mb-1.5 ml-1">Confirm Password</label>
             <input
               type="password"
               placeholder="Repeat your password"
@@ -240,14 +240,14 @@ export default function SignUp() {
               required
             />
             {confirmPassword && password !== confirmPassword && (
-              <p className="text-[#ff3b30] text-[12px] font-medium mt-1.5 ml-1">Passwords do not match</p>
+              <p className="text-[var(--message-error-text)] text-[12px] font-medium mt-1.5 ml-1">Passwords do not match</p>
             )}
           </div>
 
           {/* Error */}
           {error && (
-            <div className="bg-[#ff3b30]/8 border border-[#ff3b30]/20 rounded-xl px-4 py-3">
-              <p className="text-[#ff3b30] text-[13px] font-medium text-center">{error}</p>
+            <div className="bg-[var(--message-error-bg)] border border-[var(--message-error-border)] rounded-xl px-4 py-3">
+              <p className="text-[var(--message-error-text)] text-[13px] font-medium text-center">{error}</p>
             </div>
           )}
 
@@ -261,7 +261,7 @@ export default function SignUp() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-[13px] text-[#86868b]">
+        <p className="mt-6 text-center text-[13px] text-[var(--text-secondary)]">
           Already a member?{' '}
           <Link href="/login" className="text-scarlet font-semibold hover:underline">
             Sign In
