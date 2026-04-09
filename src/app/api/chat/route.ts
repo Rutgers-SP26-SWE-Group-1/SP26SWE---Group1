@@ -7,14 +7,78 @@ import {
 import { getChatModelOption } from '@/lib/chat-models';
 
 type ChatMessage = {
-  role: 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant';
   content: string;
 };
+
+const RUTGERS_SYSTEM_PROMPT = `
+You are Scarlet AI, a helpful assistant for Rutgers University students.
+
+Your top priority is answering Rutgers-related questions clearly, accurately, and practically. Focus on topics such as:
+- Rutgers academics, majors, classes, studying, and student success
+- campus life, student resources, clubs, events, and university services
+- software engineering concepts when asked in a Rutgers course or student context
+- general student guidance tailored to Rutgers University when relevant
+
+Behavior rules:
+- Prefer Rutgers-specific answers when the question is about university life or student needs.
+- If the user asks a general question, answer normally, but keep a helpful student-facing tone.
+- If the question is ambiguous, ask a short clarifying question before assuming details.
+- Do not invent Rutgers policies, deadlines, locations, or contact information if you are unsure.
+- Do not invent Rutgers bus route names, shuttle names, schedules, offices, or campus procedures.
+- Be concise first, then add detail if needed.
+- When helpful, suggest practical next steps a Rutgers student can take.
+
+Tone:
+- supportive, clear, and professional
+- student-friendly, not robotic
+- direct and easy to understand
+`.trim();
+
+function buildRutgersGroundingContext(message: string) {
+  const normalized = message.toLowerCase();
+  const isTransitQuestion =
+    normalized.includes('rutgers bus') ||
+    normalized.includes('bus route') ||
+    normalized.includes('bus routes') ||
+    normalized.includes('shuttle') ||
+    normalized.includes('passio') ||
+    normalized.includes('dots') ||
+    normalized.includes('new brunswick bus') ||
+    normalized.includes('newark bus') ||
+    normalized.includes('camden bus');
+
+  if (!isTransitQuestion) {
+    return null;
+  }
+
+  return `
+Official Rutgers transit grounding:
+
+- Rutgers bus information should be treated as campus-specific and may change.
+- For live routing, availability, and schedules, students should verify in Passio GO and with Rutgers DOTS.
+- Rutgers does not provide direct intercampus bus service between New Brunswick, Newark, and Camden.
+
+Known official campus transit names:
+- New Brunswick/Piscataway weekday routes include: A, B, BL Loop, C, EE, F, H, LX, REXB, and REXL.
+- New Brunswick also operates Knight Mover and a shuttle to 33 Knightsbridge Road.
+- Newark campus transit includes Campus Connect. Newark service pages also reference Penn Station and Penn Station Local.
+- Camden campus transit is the Rutgers Camden Shuttle.
+
+Answering rules for transit questions:
+- Use only the route names above if naming Rutgers buses.
+- If the user asks for current timing, delays, or stop-by-stop directions, say they should verify in Passio GO or Rutgers DOTS because those details change.
+- If you are not fully sure which campus the user means, ask whether they mean New Brunswick, Newark, or Camden.
+  `.trim();
+}
 
 /**
  * PRODUCER: Google Gemini (Universal Cloud)
  */
 async function requestGemini(messages: ChatMessage[], apiKey: string) {
+  const systemInstruction = messages.find((message) => message.role === 'system');
+  const conversationMessages = messages.filter((message) => message.role !== 'system');
+
   // UPDATED: Using gemini-2.5-flash on the stable v1 endpoint
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -22,7 +86,14 @@ async function requestGemini(messages: ChatMessage[], apiKey: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: messages.map((m) => ({
+        ...(systemInstruction
+          ? {
+              systemInstruction: {
+                parts: [{ text: systemInstruction.content }],
+              },
+            }
+          : {}),
+        contents: conversationMessages.map((m) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: m.content }],
         })),
@@ -112,8 +183,16 @@ export async function POST(request: Request) {
       content: m.content,
     }));
 
+    const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
+
+    const promptMessages: ChatMessage[] = [
+      { role: 'system', content: RUTGERS_SYSTEM_PROMPT },
+      ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] : []),
+      ...chatHistory,
+    ];
+
     // Append the current message
-    chatHistory.push({ role: 'user', content: validation.normalizedMessage });
+    promptMessages.push({ role: 'user', content: validation.normalizedMessage });
 
     let content = '';
     const startTime = Date.now();
@@ -122,16 +201,16 @@ export async function POST(request: Request) {
     if (selectedModel.provider === 'google') {
       const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       if (!apiKey) throw new Error("Google API Key missing in environment.");
-      content = await requestGemini(chatHistory, apiKey);
+      content = await requestGemini(promptMessages, apiKey);
     } 
     else if (selectedModel.provider === 'groq') {
       const apiKey = process.env.GROQ_API_KEY;
       if (!apiKey) throw new Error("Groq API Key missing in environment.");
-      content = await requestGroq(chatHistory, apiKey);
+      content = await requestGroq(promptMessages, apiKey);
     } 
     else {
       // Local Ollama Models [cite: 13, 14]
-      content = await requestOllama(chatHistory, selectedModel.ollamaModel!);
+      content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
     }
 
     const conversationId = createConversationId(body?.conversationId);

@@ -76,9 +76,20 @@ export default function ChatHub() {
   const profileHref = userEmail ? '/profile' : '/login';
 
   // SEARCH FILTER LOGIC
-  const filteredConversations = conversations.filter(c => 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase())
-  ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+
+  const filteredConversations = conversations
+    .filter((conversation) => {
+      if (!normalizedSearchQuery) return true;
+
+      const titleMatches = conversation.title.toLowerCase().includes(normalizedSearchQuery);
+      const messageMatches = conversation.messages.some((message) =>
+        message.content.toLowerCase().includes(normalizedSearchQuery)
+      );
+
+      return titleMatches || messageMatches;
+    })
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   // CLICK AWAY LISTENER FOR THREE-DOT MENU
   useEffect(() => {
@@ -280,10 +291,10 @@ export default function ChatHub() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--card-bg)] text-[var(--text-primary)] transition-colors">
+    <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
       
       {/* SIDEBAR */}
-      <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
+      <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] shadow-[6px_0_24px_rgba(15,23,42,0.05)] flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
         <div className={isSidebarOpen ? "w-72" : "w-12 flex flex-col items-center"}>
           <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
             <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
@@ -305,15 +316,15 @@ export default function ChatHub() {
 
                 {/* SEARCH MECHANISM */}
                 <div className="relative mb-6">
-                   <div className={`flex items-center transition-all duration-300 bg-white border border-slate-200 rounded-xl px-3 ${isSearchExpanded ? 'w-full shadow-sm ring-1 ring-[#cc0033]/20' : 'w-10'}`}>
-                      <button onClick={() => setIsSearchExpanded(!isSearchExpanded)} className="p-1 text-slate-400 hover:text-[#cc0033]">
+                   <div className={`flex items-center transition-all duration-300 bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 ${isSearchExpanded ? 'w-full shadow-sm ring-1 ring-[#cc0033]/20' : 'w-10'} shadow-[0_6px_16px_rgba(15,23,42,0.04)]`}>
+                      <button onClick={() => setIsSearchExpanded(!isSearchExpanded)} className="p-1 text-[var(--text-muted)] hover:text-[#cc0033]">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                       </button>
                       {isSearchExpanded && (
                         <input 
                           autoFocus
                           placeholder="Search chats..."
-                          className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2"
+                          className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -336,8 +347,8 @@ export default function ChatHub() {
                                 key={conversation.id}
                                 className={`rounded-xl border transition-all relative ${
                                     conversation.id === activeConversationId
-                                        ? 'bg-[var(--card-bg)] border-scarlet/30 shadow-sm'
-                                        : 'bg-transparent border-transparent hover:bg-[var(--card-bg)] hover:border-[var(--card-border)]'
+                                        ? 'bg-[var(--surface-soft)] border-scarlet/20 shadow-[0_8px_18px_rgba(15,23,42,0.06)]'
+                                        : 'bg-transparent border-transparent hover:bg-[var(--surface-soft)] hover:border-[var(--card-border)] hover:shadow-[0_6px_14px_rgba(15,23,42,0.04)]'
                                 }`}
                             >
                                 <div className="flex items-start gap-3 px-3 py-3 group">
@@ -368,24 +379,24 @@ export default function ChatHub() {
                                     
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id); }}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-slate-100 rounded text-slate-400"
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]"
                                     >
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                                     </button>
 
                                     {/* Professional Menu Dropdown */}
                                     {menuOpenId === conversation.id && (
-                                        <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-36 bg-white border border-slate-200 rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
+                                        <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-36 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
                                             <button 
                                                 onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }}
-                                                className="w-full text-left px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 flex items-center gap-3"
+                                                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
                                             >
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                                 RENAME
                                             </button>
                                             <button 
                                                 onClick={() => handleDeleteConversation(conversation.id)}
-                                                className="w-full text-left px-4 py-2 text-xs font-black text-red-600 hover:bg-red-50 flex items-center gap-3"
+                                                className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-[rgba(204,0,51,0.08)] flex items-center gap-3"
                                             >
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                                                 DELETE
@@ -407,10 +418,10 @@ export default function ChatHub() {
       </aside>
 
       <main className="flex-1 flex flex-col relative z-10">
-        <header className="flex items-center justify-between px-6 py-4 bg-[var(--card-bg)] border-b border-[var(--card-border)] sticky top-0 z-40">
+        <header className="flex items-center justify-between px-6 py-4 bg-[var(--card-bg)] border-b border-[var(--card-border)] shadow-[0_10px_30px_rgba(15,23,42,0.04)] sticky top-0 z-40">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors hidden md:block"
+            className="p-2 hover:bg-[var(--surface-soft)] rounded-lg text-[var(--text-muted)] transition-colors hidden md:block"
           >
             {isSidebarOpen ? '❮' : '❯'}
           </button>
@@ -423,7 +434,7 @@ export default function ChatHub() {
           </button>
 
           {/* CENTERED TITLE - Respecting case sensitivity */}
-          <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-slate-800 text-xs sm:text-sm text-center">
+          <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-[var(--text-primary)] text-xs sm:text-sm text-center">
             {activeConversation?.title || "New Session"}
           </h1>
 
@@ -443,7 +454,7 @@ export default function ChatHub() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/20">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-[var(--app-bg)]">
           {activeConversation && activeConversation.messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
               <Image src="/overlayicon.png" alt="Logo" width={100} height={100} />
@@ -464,7 +475,7 @@ export default function ChatHub() {
                 </div>
               )}
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`p-4 rounded-2xl shadow-sm font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[#cc0033] text-white rounded-tr-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'}`}>
+                  <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
                   {msg.content}
                 </div>
               </div>
@@ -479,7 +490,7 @@ export default function ChatHub() {
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
                 </div>
               </div>
-              <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 min-w-[200px]">
+              <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[200px]">
                 <div className="flex gap-1.5 items-center">
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
@@ -497,13 +508,13 @@ export default function ChatHub() {
         </div>
 
         {/* ACTION BAR FOOTER */}
-        <div className="p-6 bg-white border-t border-slate-50">
+        <div className="p-6 bg-[var(--app-bg)] border-t border-[var(--card-border)]">
           <div className="max-w-4xl mx-auto">
-            <div className="flex flex-col bg-slate-50 border-2 border-slate-200 rounded-2xl focus-within:border-scarlet transition-all shadow-sm">
+            <div className="flex flex-col bg-[var(--input-bg)] border-2 border-[var(--input-border)] rounded-2xl focus-within:border-scarlet transition-all shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
               <textarea
                 ref={composerRef}
                 placeholder={`Hello ${userName?.split(' ')[0] || 'there'}, ask Scarlet AI anything...`}
-                className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 bg-transparent text-slate-800 outline-none placeholder:text-slate-400 font-medium leading-6"
+                className="w-full min-h-[64px] max-h-[144px] resize-none overflow-y-hidden p-5 bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--input-placeholder)] font-medium leading-6"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleComposerKeyDown}
@@ -511,9 +522,9 @@ export default function ChatHub() {
                 rows={1}
               />
               
-              <div className="flex items-center justify-between px-4 pb-3 pt-1 border-t border-slate-200/50">
+              <div className="flex items-center justify-between px-4 pb-3 pt-1 border-t border-[var(--input-border)]">
                 <div className="flex gap-2">
-                   <button type="button" className="p-2 text-slate-400 hover:text-scarlet transition-colors">
+                   <button type="button" className="p-2 text-[var(--text-muted)] hover:text-scarlet transition-colors">
                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                    </button>
                 </div>
@@ -523,7 +534,7 @@ export default function ChatHub() {
                       <select
                           value={selectedModelId}
                           onChange={(e) => setSelectedModelId(e.target.value)}
-                          className="text-[10px] font-black text-slate-500 hover:text-scarlet bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
+                          className="text-[10px] font-black text-[var(--text-secondary)] hover:text-scarlet bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
                       >
                           {CHAT_MODEL_OPTIONS.map((model) => (
                               <option key={model.id} value={model.id}>
@@ -546,10 +557,10 @@ export default function ChatHub() {
             </div>
             
             <div className="mt-4 flex flex-col items-center gap-1">
-               <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] text-center">
+               <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
                  {getChatModelOption(selectedModelId).description}
                </p>
-               <p className="text-[8px] font-bold text-slate-600 text-center italic">
+               <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
                  {getChatModelOption(selectedModelId).details}
                </p>
             </div>

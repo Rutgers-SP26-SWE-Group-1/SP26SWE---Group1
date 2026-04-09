@@ -88,3 +88,93 @@ Grading Rubrics
 ○  Setting up Puppeteer or another automated browser testing tool 
 ○  Record the automated browser testing tool demo (1 min) 
 ○  GitHub interactions using GitHub issues 
+
+
+Development Team Report
+
+1. Number of features implemented
+
+The current implementation covers at least five major features for Iteration 2:
+
+- Rutgers-only sign-up validation and secure authentication flow
+- Email verification and login redirect flow
+- Profile management with stored user metadata such as full name, major, and class year
+- AI chat endpoint and chat hub interface with multiple model-routing options
+- Conversation history management including create, rename, delete, continue, and search
+
+2. Unit tests and unit tests implemented before coding
+
+The development team used Jasmine for unit testing. Unit tests were written for the core logic that was most likely to break during feature development, especially validation and data-processing code. This included:
+
+- sign-up validation rules for Rutgers email and password constraints
+- chat request validation, conversation id generation, and sanitization
+- profile validation logic
+- API-level chat behavior checks
+
+Representative Jasmine test files in the repository include:
+
+- spec/auth_spec.js
+- spec/chat_spec.js
+- spec/chat_logic_spec.js
+- spec/profile_spec.js
+- spec/api_chat_spec.js
+
+Our development process was to begin with the expected behavior, encode that behavior in Jasmine tests, and then implement or revise the application logic until those tests passed. This helped keep changes focused and reduced regressions when new features were added.
+
+3. Process of iterating over passing unit tests, then acceptance tests
+
+The testing workflow for this iteration was:
+
+1. Start from a user story or expected behavior.
+2. Write or update Jasmine unit tests for the underlying logic.
+3. Implement the feature until the unit tests pass locally.
+4. Integrate the feature into the UI and API routes.
+5. Validate the complete user flow with Cucumber acceptance tests.
+6. Run browser-based smoke testing with Puppeteer-style scripts for an additional end-to-end check.
+
+This created a layered test process. Unit tests verified the smallest pieces of logic first, and acceptance tests then verified that the same behavior worked from the user perspective across pages and flows.
+
+4. REST API routing table
+
+The current REST API routes implemented in the Next.js application are:
+
+| Route | Method | Purpose | Input | Output |
+| --- | --- | --- | --- | --- |
+| /api/auth/signup | POST | Creates a new Rutgers user account through Supabase Auth and stores profile metadata | email, password, fullName, major, year | Success or error JSON, plus created user data |
+| /api/chat | POST | Validates a chat request, selects the requested model provider, sends the message to the model, and returns the assistant response | message, optional messages history, optional conversationId, optional modelId | conversationId, content, durationMs, model metadata, timestamp |
+
+The `/api/chat` route acts as the main application integration endpoint. It performs request validation, conversation tracking, and provider routing for Google Gemini, Groq-hosted Llama, or local Ollama models.
+
+5. Database design
+
+The current project uses a hybrid persistence design:
+
+- Supabase Auth is used as the backend user account store.
+- User profile attributes are stored as Supabase user metadata during sign-up.
+- Conversation history is currently stored on the client side in browser localStorage under the key `scarlet-ai-conversations`.
+
+Current logical data model:
+
+Users
+- user_id
+- email
+- full_name
+- major
+- class_year
+
+Conversations
+- conversation_id
+- title
+- created_at
+- updated_at
+- messages[]
+
+Messages
+- role
+- content
+- duration_ms
+- model_id
+- model_label
+- model_description
+
+This design supports the current iteration goals: account creation, user metadata, active chat sessions, conversation history, and search over saved conversation titles. A limitation of the current version is that conversations are not yet stored in a shared server-side database table. Instead, chat history persists locally in the browser. A future database improvement would be to move conversations and messages into Supabase tables so that history syncs across devices and accounts.
