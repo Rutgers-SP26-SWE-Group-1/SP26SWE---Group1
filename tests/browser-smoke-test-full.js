@@ -1,8 +1,4 @@
-// tests/browser-smoke-test-full.js
 // Puppeteer smoke test covering all pages in Scarlet AI
-
-
-
 
 const puppeteer = require('puppeteer');
 

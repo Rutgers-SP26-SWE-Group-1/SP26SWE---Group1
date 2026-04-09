@@ -61,4 +61,14 @@ describe("Sign Up Validation Logic", function() {
     expect(result.isValid).toBe(true);
     expect(result.error).toBeNull();
   });
+
+  it("should reject an empty email string", function() {
+    const result = validateSignup("", "Rutgers1766!");
+    expect(result.isValid).toBe(false);
+  });
+
+  it("should reject an empty password string", function() {
+    const result = validateSignup("vedpatel@scarletmail.rutgers.edu", "");
+    expect(result.isValid).toBe(false);
+  });
 });
