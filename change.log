@@ -1,6 +1,6 @@
-Feature 1: Multiple LLM model integration using Ollama. [Branch: feature-ollama-integration]
-Feature 2: Save conversation history. [Branch: feature/iteration2-final-updates]
-Feature 3: Search conversation history (search by title and message contents). [Branch: feature/iteration2-final-updates]
-Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates]
-Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates]
-Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates]
+Feature 1: Multiple LLM model integration using Ollama. [Branch: feature-ollama-integration] This was then updated to PR #1 where everything else lives. https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 2: Save conversation history. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 3: Search conversation history (search by title and message contents). [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
