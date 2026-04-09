@@ -76,24 +76,16 @@ Answering rules for transit questions:
  * PRODUCER: Google Gemini (Universal Cloud)
  */
 async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  const systemInstruction = messages.find((message) => message.role === 'system');
-  const conversationMessages = messages.filter((message) => message.role !== 'system');
+  // Keeping your specific working model string
+  const modelName = "gemini-2.5-flash"; 
 
-  // UPDATED: Using gemini-2.5-flash on the stable v1 endpoint
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...(systemInstruction
-          ? {
-              systemInstruction: {
-                parts: [{ text: systemInstruction.content }],
-              },
-            }
-          : {}),
-        contents: conversationMessages.map((m) => ({
+        contents: messages.map((m) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: m.content }],
         })),
