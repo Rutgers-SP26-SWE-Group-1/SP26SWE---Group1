@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -26,16 +26,28 @@ export default function LoginPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
+    if (!supabase) {
+      setError(SUPABASE_ERROR_MESSAGE);
       setLoading(false);
-    } else {
-      router.push('/chat');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+      } else {
+        router.push('/chat');
+      }
+    } catch (loginError) {
+      console.error('Unable to log in with Supabase:', loginError);
+      setError(SUPABASE_ERROR_MESSAGE);
+      setLoading(false);
     }
   };
 
@@ -45,15 +57,25 @@ export default function LoginPage() {
       return;
     }
 
-    setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/update-password`,
-    });
+    if (!supabase) {
+      setError(SUPABASE_ERROR_MESSAGE);
+      return;
+    }
 
-    if (error) {
-      setError(error.message);
-    } else {
-      setMessage("Reset link sent! Please check your Scarletmail.");
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/update-password`,
+      });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        setMessage("Reset link sent! Please check your Scarletmail.");
+      }
+    } catch (resetError) {
+      console.error('Unable to send reset password email:', resetError);
+      setError(SUPABASE_ERROR_MESSAGE);
     }
     setLoading(false);
   };

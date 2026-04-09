@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import LogoutButton from '@/components/LogoutButton';
 import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
-import { supabase } from '@/lib/supabase';
+import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -22,6 +22,13 @@ type Conversation = {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+};
+
+type ConversationSearchResult = {
+  conversation: Conversation;
+  preview: string;
+  matchType: 'title' | 'message';
+  rank: number;
 };
 
 const STORAGE_KEY = 'scarlet-ai-conversations';
@@ -43,6 +50,24 @@ function createUntitledConversation(): Conversation {
 function deriveTitle(message: string) {
   // Respecting case sensitivity as requested
   return message.trim().split(/\s+/).slice(0, 6).join(' ').slice(0, 48) || 'New chat';
+}
+
+function buildSearchPreview(text: string, query: string, maxLength = 80) {
+  const normalizedText = text.toLowerCase();
+  const matchIndex = normalizedText.indexOf(query);
+
+  if (matchIndex === -1) {
+    return text.slice(0, maxLength).trim();
+  }
+
+  const previewStart = Math.max(0, matchIndex - 24);
+  const previewEnd = Math.min(text.length, matchIndex + query.length + 40);
+  const excerpt = text.slice(previewStart, previewEnd).trim();
+
+  const prefix = previewStart > 0 ? '...' : '';
+  const suffix = previewEnd < text.length ? '...' : '';
+
+  return `${prefix}${excerpt}${suffix}`;
 }
 
 export default function ChatHub() {
@@ -78,18 +103,63 @@ export default function ChatHub() {
   // SEARCH FILTER LOGIC
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-  const filteredConversations = conversations
-    .filter((conversation) => {
-      if (!normalizedSearchQuery) return true;
+  const filteredConversations: ConversationSearchResult[] = conversations
+    .map((conversation) => {
+      if (!normalizedSearchQuery) {
+        return {
+          conversation,
+          preview: new Date(conversation.updatedAt).toLocaleString([], {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }),
+          matchType: 'title' as const,
+          rank: 0,
+        };
+      }
 
-      const titleMatches = conversation.title.toLowerCase().includes(normalizedSearchQuery);
-      const messageMatches = conversation.messages.some((message) =>
+      const normalizedTitle = conversation.title.toLowerCase();
+      const titleIndex = normalizedTitle.indexOf(normalizedSearchQuery);
+
+      if (titleIndex !== -1) {
+        return {
+          conversation,
+          preview: `Title match: ${buildSearchPreview(conversation.title, normalizedSearchQuery, 60)}`,
+          matchType: 'title' as const,
+          rank: titleIndex,
+        };
+      }
+
+      const matchingMessage = conversation.messages.find((message) =>
         message.content.toLowerCase().includes(normalizedSearchQuery)
       );
 
-      return titleMatches || messageMatches;
+      if (!matchingMessage) {
+        return null;
+      }
+
+      const messageIndex = matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery);
+
+      return {
+        conversation,
+        preview: buildSearchPreview(matchingMessage.content, normalizedSearchQuery),
+        matchType: 'message' as const,
+        rank: messageIndex + 1000,
+      };
     })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    .filter((result): result is ConversationSearchResult => result !== null)
+    .sort((a, b) => {
+      if (normalizedSearchQuery && a.matchType !== b.matchType) {
+        return a.matchType === 'title' ? -1 : 1;
+      }
+
+      if (normalizedSearchQuery && a.rank !== b.rank) {
+        return a.rank - b.rank;
+      }
+
+      return (
+        new Date(b.conversation.updatedAt).getTime() - new Date(a.conversation.updatedAt).getTime()
+      );
+    });
 
   // CLICK AWAY LISTENER FOR THREE-DOT MENU
   useEffect(() => {
@@ -104,15 +174,44 @@ export default function ChatHub() {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserEmail(user.email ?? null);
-        setUserName(user.user_metadata?.full_name || 'Scarlet Knight');
-        setUserMajor(user.user_metadata?.major || 'Student');
-      } else {
+      if (!supabase) {
         setUserEmail(null);
         setUserName('Guest User');
         setUserMajor('Guest');
+        return;
+      }
+
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
+
+        if (error) {
+          throw error;
+        }
+
+        if (user) {
+          setUserEmail(user.email ?? null);
+          setUserName(user.user_metadata?.full_name || 'Scarlet Knight');
+          setUserMajor(user.user_metadata?.major || 'Student');
+        } else {
+          setUserEmail(null);
+          setUserName('Guest User');
+          setUserMajor('Guest');
+        }
+      } catch (authError) {
+        console.error('Unable to load Supabase user on chat page:', authError);
+        setUserEmail(null);
+        setUserName('Guest User');
+        setUserMajor('Guest');
+        setError(SUPABASE_ERROR_MESSAGE);
+
+        try {
+          await supabase.auth.signOut({ scope: 'local' });
+        } catch (signOutError) {
+          console.error('Unable to clear local Supabase session:', signOutError);
+        }
       }
     };
     getUser();
@@ -342,7 +441,7 @@ export default function ChatHub() {
                             <div className="text-sm text-[var(--text-secondary)] italic px-2">No results found.</div>
                         )}
 
-                        {filteredConversations.map((conversation) => (
+                        {filteredConversations.map(({ conversation, preview, matchType }) => (
                             <div
                                 key={conversation.id}
                                 className={`rounded-xl border transition-all relative ${
@@ -370,9 +469,20 @@ export default function ChatHub() {
                                                 <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">
                                                     {conversation.title}
                                                 </p>
-                                                <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">
-                                                    {new Date(conversation.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                                                </p>
+                                                {normalizedSearchQuery ? (
+                                                    <div className="mt-1">
+                                                        <p className="text-[10px] text-scarlet font-black uppercase tracking-widest">
+                                                            {matchType === 'title' ? 'Title' : 'Conversation'}
+                                                        </p>
+                                                        <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">
+                                                            {preview}
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">
+                                                        {preview}
+                                                    </p>
+                                                )}
                                             </div>
                                         )}
                                     </button>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -22,16 +22,42 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const getProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setEmail(user.email || '');
-        setFullName(user.user_metadata?.full_name || '');
-        setMajor(user.user_metadata?.major || '');
-        setYear(user.user_metadata?.class_year || '');
-      } else {
-        router.push('/login');
+      if (!supabase) {
+        setMessage({ text: SUPABASE_ERROR_MESSAGE, type: 'error' });
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
+
+        if (error) {
+          throw error;
+        }
+
+        if (user) {
+          setEmail(user.email || '');
+          setFullName(user.user_metadata?.full_name || '');
+          setMajor(user.user_metadata?.major || '');
+          setYear(user.user_metadata?.class_year || '');
+        } else {
+          router.push('/login');
+        }
+      } catch (authError) {
+        console.error('Unable to load profile user:', authError);
+        setMessage({ text: SUPABASE_ERROR_MESSAGE, type: 'error' });
+
+        try {
+          await supabase.auth.signOut({ scope: 'local' });
+        } catch (signOutError) {
+          console.error('Unable to clear local Supabase session:', signOutError);
+        }
+      } finally {
+        setLoading(false);
+      }
     };
     getProfile();
   }, [router]);
@@ -58,18 +84,29 @@ export default function ProfilePage() {
     setUpdating(true);
     setMessage({ text: '', type: '' });
 
-    const { error } = await supabase.auth.updateUser({
-      data: { 
-        full_name: fullName, 
-        major: major, 
-        class_year: year 
-      }
-    });
+    if (!supabase) {
+      setMessage({ text: SUPABASE_ERROR_MESSAGE, type: 'error' });
+      setUpdating(false);
+      return;
+    }
 
-    if (error) {
-      setMessage({ text: error.message, type: 'error' });
-    } else {
-      setMessage({ text: 'Profile updated successfully!', type: 'success' });
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { 
+          full_name: fullName, 
+          major: major, 
+          class_year: year 
+        }
+      });
+
+      if (error) {
+        setMessage({ text: error.message, type: 'error' });
+      } else {
+        setMessage({ text: 'Profile updated successfully!', type: 'success' });
+      }
+    } catch (updateError) {
+      console.error('Unable to update profile:', updateError);
+      setMessage({ text: SUPABASE_ERROR_MESSAGE, type: 'error' });
     }
     setUpdating(false);
   };

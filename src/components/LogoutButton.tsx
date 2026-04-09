@@ -8,10 +8,12 @@ export default function LogoutButton() {
 
     try {
       // 1. Clear Supabase Session
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        console.error("Supabase signout error:", error.message);
+      if (supabase) {
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        
+        if (error) {
+          console.error("Supabase signout error:", error.message);
+        }
       }
 
       // 2. Clear all local session data

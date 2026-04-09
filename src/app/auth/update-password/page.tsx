@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -50,15 +50,27 @@ export default function UpdatePasswordPage() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.updateUser({ password });
-    
-    if (error) {
-      setError(error.message);
+    if (!supabase) {
+      setError(SUPABASE_ERROR_MESSAGE);
       setLoading(false);
-    } else {
-      setSuccess(true);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+      } else {
+        setSuccess(true);
+        setLoading(false);
+        setTimeout(() => router.push('/login'), 3000);
+      }
+    } catch (updateError) {
+      console.error('Unable to update password:', updateError);
+      setError(SUPABASE_ERROR_MESSAGE);
       setLoading(false);
-      setTimeout(() => router.push('/login'), 3000);
     }
   };
 
