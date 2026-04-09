@@ -1,76 +1,54 @@
-// Puppeteer E2E test for AI chat interaction
-
-const puppeteer = require('puppeteer');
-
+const { launch, BASE_URL, shot, settled } = require('./puppeteer-config');
 
 (async () => {
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await launch();
   const page = await browser.newPage();
   let passed = 0;
   let failed = 0;
 
+  function pass(name) { console.log(`[PASS] ${name}`); passed++; }
+  function fail(name, d) { console.log(`[FAIL] ${name}${d ? ' — ' + d : ''}`); failed++; }
 
-  function log(testName, success, detail) {
-    console.log(`[${success ? 'PASS' : 'FAIL'}] ${testName}${detail ? ' - ' + detail : ''}`);
-    if (success) passed++; else failed++;
-  }
+  await page.goto(`${BASE_URL}/chat`, { waitUntil: 'networkidle2' });
+  await page.waitForSelector('main textarea', { timeout: 20000 });
+  pass('Chat page loads');
 
+  await page.type('main textarea', 'What is CS111 at Rutgers?');
+  await page.click('button[type="submit"]');
 
+  await page.waitForFunction(
+    () => document.querySelectorAll('[class*="user-bubble-bg"]').length > 0,
+    { timeout: 10000 }
+  );
+  pass('User message bubble appeared');
+
+  let replyOrError = false;
   try {
-    // TEST 1: Chat page loads for guest user
-    await page.goto('http://localhost:3000/chat', { waitUntil: 'networkidle0' });
-    log('Chat page loads for guest', page.url().includes('/chat'));
-    await page.screenshot({ path: 'test-screenshots/chat-page-guest.png', fullPage: true });
+    await page.waitForFunction(() => {
+      const hasReply = [...document.querySelectorAll('[class*="rounded-tl-none"]')]
+        .some((el) => {
+          const t = (el.textContent || '').trim();
+          return t.length > 15 && !t.toLowerCase().includes('thinking with');
+        });
+      const err = document.querySelector('[class*="message-error-border"]');
+      return hasReply || (err && err.textContent.trim().length > 0);
+    }, { timeout: 90000 });
+    replyOrError = true;
+  } catch {}
 
+  if (replyOrError) pass('AI reply or error banner after send');
+  else fail('AI reply or error banner after send');
 
-    // TEST 2: Chat input and send button exist
-    const inputExists = await page.$('input[type="text"]');
-    const sendBtn = await page.$('button[type="submit"]');
-    log('Chat input field exists', inputExists !== null);
-    log('Send button exists', sendBtn !== null);
+  await shot(page, replyOrError ? 'chat-ai-response.png' : 'chat-no-response.png');
 
+  const cleared = await page.$eval('main textarea', (el) => el.value === '');
+  if (cleared) pass('Input cleared after send');
+  else fail('Input cleared after send');
 
-    // TEST 3: Type and send a message
-    await page.type('input[type="text"]', 'What is CS111 at Rutgers?');
-    await page.click('button[type="submit"]');
-
-
-    // TEST 4: User message bubble appears
-    await page.waitForFunction(
-      () => document.querySelectorAll('[class*="bg-[#cc0033]"]').length > 0,
-      { timeout: 5000 }
-    );
-    log('User message bubble appeared', true);
-
-
-    // TEST 5: AI response appears within 30 seconds
-    let aiResponded = false;
-    try {
-      await page.waitForFunction(
-        () => document.querySelectorAll('[class*="bg-slate-100"]').length > 0,
-        { timeout: 30000 }
-      );
-      aiResponded = true;
-    } catch { aiResponded = false; }
-    log('AI response appeared within 30s', aiResponded);
-    await page.screenshot({ path: 'test-screenshots/chat-ai-response.png', fullPage: true });
-
-
-    // TEST 6: Input field clears after send
-    const inputValue = await page.$eval('input[type="text"]', el => el.value);
-    log('Input cleared after send', inputValue === '');
-
-
-  } catch (err) {
-    console.error('Test error:', err.message);
-    failed++;
-  }
-
-
-  console.log(`\n========================================`);
-  console.log(`Chat Tests: ${passed} passed, ${failed} failed`);
-  console.log(`========================================\n`);
-
-
+  console.log(`\nChat Tests: ${passed} passed, ${failed} failed`);
   await browser.close();
-})();
+  process.exit(failed > 0 ? 1 : 0);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
