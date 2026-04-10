@@ -18,7 +18,13 @@ function LandingPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+  const timer = setTimeout(() => {
+    setMounted(true);
+  }, 0);
+
+  return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -32,12 +38,14 @@ function LandingPage() {
       }, messages.length === 0 ? 1000 : 4000);
 
     } else if (step === 1) {
-      if (!isTyping) {
-        setIsTyping(true);
-        setCurrentTyping('');
-      }
       const fullText = SAMPLE_CHATS[chatIdx].prompt;
-      if (currentTyping.length < fullText.length) {
+
+      if (!isTyping) {
+        timer = setTimeout(() => {
+          setIsTyping(true);
+          setCurrentTyping('');
+        }, 0);
+      } else if (currentTyping.length < fullText.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullText.slice(0, currentTyping.length + 1));
         }, 40);
@@ -54,19 +62,26 @@ function LandingPage() {
       timer = setTimeout(() => setStep(3), 600);
 
     } else if (step === 3) {
-      if (!isTyping) setIsTyping(true);
-      timer = setTimeout(() => {
-        setIsTyping(false);
-        setStep(4);
-      }, 2500);
+      if (!isTyping) {
+        timer = setTimeout(() => {
+          setIsTyping(true);
+        }, 0);
+      } else {
+        timer = setTimeout(() => {
+          setIsTyping(false);
+          setStep(4);
+        }, 2500);
+      }
 
     } else if (step === 4) {
-      if (!isTyping) {
-        setIsTyping(true);
-        setCurrentTyping('');
-      }
       const fullResponse = SAMPLE_CHATS[chatIdx].response;
-      if (currentTyping.length < fullResponse.length) {
+
+      if (!isTyping) {
+        timer = setTimeout(() => {
+          setIsTyping(true);
+          setCurrentTyping('');
+        }, 0);
+      } else if (currentTyping.length < fullResponse.length) {
         timer = setTimeout(() => {
           setCurrentTyping(fullResponse.slice(0, currentTyping.length + 1));
         }, 30);

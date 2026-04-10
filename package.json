@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint .",
     "test": "npx jasmine",
     "test:browser": "node tests/browser-smoke-test.js"
   },
@@ -19,17 +19,39 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^12.7.0",
+    "@eslint/js": "^10.0.1",
+    "@eslint/json": "^1.2.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
+    "eslint": "^9.39.4",
     "eslint-config-next": "16.1.6",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^17.4.0",
     "jasmine": "^6.1.0",
     "puppeteer": "^24.39.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "typescript-eslint": "^8.58.1"
   },
-  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+  "description": "Initializing the Project now....",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/issues"
+  },
+  "homepage": "https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1#readme"
 }
