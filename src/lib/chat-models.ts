@@ -4,64 +4,47 @@ export type ChatModelOption = {
   description: string;
   details: string;
   ollamaModel?: string;
-  provider: 'ollama' | 'google' | 'groq';
+  provider: 'ollama';
 };
 
 export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
-  // --- UNIVERSAL MODELS (Cloud - Works for everyone) ---
-  {
-    id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Universal (Cloud)',
-    details: 'Fastest cloud model. Works for all online users.',
-    provider: 'google',
-  },
-  {
-    id: 'llama-3-groq',
-    label: 'Llama 3.1',
-    description: 'Universal (Cloud)',
-    details: 'High-speed Llama hosted on Groq. Works for all users.',
-    provider: 'groq',
-  },
-
-  // --- LOCAL MODELS (Requires Ollama installation) ---
   {
     id: 'mistral',
     label: 'Mistral',
-    description: 'Local (Ollama)',
-    details: 'Requires "mistral" model installed on your MacBook. Thinking takes time.',
+    description: 'General / Fast',
+    details: 'Fast local-purpose model for quick responses and everyday prompts.',
     ollamaModel: 'mistral:latest',
     provider: 'ollama',
   },
   {
-    id: 'llama3.2',
-    label: 'Llama 3.2',
-    description: 'Local (Ollama)',
-    details: 'Requires "llama3.2" installed locally. Slow thinker.',
-    ollamaModel: 'llama3.2:latest',
+    id: 'llama3.1',
+    label: 'Llama 3.1',
+    description: 'Explanations',
+    details: 'Strong at clear explanations and step-by-step breakdowns.',
+    ollamaModel: 'llama3.1:8b',
     provider: 'ollama',
   },
   {
     id: 'deepseek',
     label: 'DeepSeek R1',
-    description: 'Local (Ollama)',
-    details: 'Best for complex logic. Requires local install.',
+    description: 'Reasoning',
+    details: 'Best fit for deeper reasoning and complex logic questions.',
     ollamaModel: 'deepseek-r1:8b',
     provider: 'ollama',
   },
   {
     id: 'qwen-coder',
     label: 'Qwen Coder',
-    description: 'Local (Ollama)',
-    details: 'Programming assistant. Requires local install.',
+    description: 'Coding',
+    details: 'Specialized for programming help, debugging, and code generation.',
     ollamaModel: 'qwen2.5-coder:7b',
     provider: 'ollama',
   },
   {
     id: 'gemma',
     label: 'Gemma 3',
-    description: 'Local (Ollama)',
-    details: 'Google Open Model. Requires local install.',
+    description: 'Balanced',
+    details: 'Balanced local model for a mix of speed, quality, and versatility.',
     ollamaModel: 'gemma3:latest',
     provider: 'ollama',
   },

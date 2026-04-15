@@ -4,7 +4,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import LogoutButton from '@/components/LogoutButton';
-import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
+import { DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
+import {
+  createModelSelectionState,
+  openModelSelection,
+  toggleModelSelection,
+  confirmModelSelection,
+  closeModelSelection,
+} from '@/lib/chat-model-selector';
 import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
@@ -31,7 +38,17 @@ type ConversationSearchResult = {
   rank: number;
 };
 
+type ModelSelectorState = {
+  isOpen: boolean;
+  committedModelIds: string[];
+  draftModelIds: string[];
+  maxSelections: number;
+};
+
 const STORAGE_KEY = 'scarlet-ai-conversations';
+const SELECTABLE_MODEL_IDS = ['mistral', 'llama3.1', 'deepseek', 'qwen-coder', 'gemma'];
+const SELECTABLE_CHAT_MODELS = SELECTABLE_MODEL_IDS.map((modelId) => getChatModelOption(modelId));
+const DEFAULT_SELECTOR_MODEL_ID = SELECTABLE_CHAT_MODELS[0]?.id ?? DEFAULT_CHAT_MODEL.id;
 
 function createUntitledConversation(): Conversation {
   const now = new Date().toISOString();
@@ -80,7 +97,9 @@ export default function ChatHub() {
   const [userMajor, setUserMajor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [modelSelectorState, setModelSelectorState] = useState<ModelSelectorState>(() =>
+    createModelSelectionState([DEFAULT_SELECTOR_MODEL_ID], DEFAULT_SELECTOR_MODEL_ID, 3)
+  );
   
   // UI STATES
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -90,11 +109,15 @@ export default function ChatHub() {
   
   // NEW SEARCH STATES
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sidebarMenuRef = useRef<HTMLDivElement | null>(null);
+  const selectedModelId = modelSelectorState.committedModelIds[0] ?? DEFAULT_SELECTOR_MODEL_ID;
+  const selectedModelOptions = modelSelectorState.committedModelIds.map((modelId: string) =>
+    getChatModelOption(modelId)
+  );
+  const draftSelectionCount = modelSelectorState.draftModelIds.length;
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
@@ -389,8 +412,140 @@ export default function ChatHub() {
     }
   };
 
+  const handleOpenModelSelector = () => {
+    setModelSelectorState((currentState) =>
+      openModelSelection(currentState)
+    );
+  };
+
+  const handleToggleDraftModel = (modelId: string) => {
+    setModelSelectorState((currentState) =>
+      toggleModelSelection(currentState, modelId)
+    );
+  };
+
+  const handleConfirmModelSelector = () => {
+    setModelSelectorState((currentState) =>
+      confirmModelSelection(currentState)
+    );
+  };
+
+  const handleCloseModelSelector = () => {
+    setModelSelectorState((currentState) =>
+      closeModelSelection(currentState)
+    );
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
+      <div
+        className={`fixed inset-0 z-[80] flex items-center justify-center px-4 py-6 transition-all duration-200 ${
+          modelSelectorState.isOpen
+            ? 'pointer-events-auto bg-[rgba(15,23,42,0.45)] opacity-100'
+            : 'pointer-events-none bg-transparent opacity-0'
+        }`}
+      >
+        <div
+          className={`w-full max-w-xl overflow-hidden rounded-[28px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[0_32px_90px_rgba(15,23,42,0.35)] transition-all duration-200 ${
+            modelSelectorState.isOpen ? 'translate-y-0 scale-100' : 'translate-y-4 scale-95'
+          } max-h-[calc(100vh-3rem)]`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="llm-selector-title"
+        >
+          <div className="border-b border-[var(--card-border)] bg-[var(--surface-soft)] px-6 py-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-scarlet">
+                  Model Selection
+                </p>
+                <h2 id="llm-selector-title" className="mt-2 text-xl font-black tracking-tight text-[var(--text-primary)]">
+                  Choose LLM(s)
+                </h2>
+                <p className="mt-2 text-sm font-medium text-[var(--text-secondary)]">
+                  Select between 1 and 3 models. Your first selection is used as the active chat model.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseModelSelector}
+                aria-label="Close model selector"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--text-muted)] transition-colors hover:text-scarlet"
+              >
+                <span className="text-lg font-black leading-none">X</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="px-6 py-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+                {draftSelectionCount} of {modelSelectorState.maxSelections} selected
+              </p>
+              <p className="text-xs font-semibold text-[var(--text-muted)]">
+                Choose up to 3 models
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {SELECTABLE_CHAT_MODELS.map((model) => {
+                const isSelected = modelSelectorState.draftModelIds.includes(model.id);
+                const isDisabled =
+                  !isSelected && modelSelectorState.draftModelIds.length >= modelSelectorState.maxSelections;
+
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => handleToggleDraftModel(model.id)}
+                    disabled={isDisabled}
+                    className={`rounded-2xl border p-4 text-left transition-all ${
+                      isSelected
+                        ? 'border-scarlet bg-[rgba(204,0,51,0.08)] shadow-[0_14px_30px_rgba(204,0,51,0.16)]'
+                        : 'border-[var(--card-border)] bg-[var(--surface-soft)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] hover:border-scarlet/50'
+                    } ${isDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:-translate-y-0.5'}`}
+                    aria-pressed={isSelected}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-black text-[var(--text-primary)]">{model.label}</p>
+                        <p className="mt-1 text-[11px] font-black uppercase tracking-[0.2em] text-scarlet">
+                          {model.description}
+                        </p>
+                        <p className="mt-2 text-sm font-medium leading-6 text-[var(--text-secondary)]">
+                          {model.details}
+                        </p>
+                      </div>
+                      <span
+                        className={`mt-1 flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-black uppercase ${
+                          isSelected
+                            ? 'border-scarlet bg-scarlet text-white'
+                            : 'border-[var(--card-border)] text-[var(--text-muted)]'
+                        }`}
+                      >
+                        {isSelected ? 'ON' : ''}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--card-border)] bg-[var(--surface-soft)] px-6 py-4">
+            <p className="text-xs font-medium text-[var(--text-muted)]">
+              Reopen the card any time to review or adjust your saved model choices.
+            </p>
+            <button
+              type="button"
+              onClick={handleConfirmModelSelector}
+              className="rounded-xl bg-[#cc0033] px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-[0_14px_30px_rgba(204,0,51,0.25)] transition-all hover:bg-[#990026]"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
       
       {/* SIDEBAR */}
       <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] shadow-[6px_0_24px_rgba(15,23,42,0.05)] flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
@@ -415,19 +570,16 @@ export default function ChatHub() {
 
                 {/* SEARCH MECHANISM */}
                 <div className="relative mb-6">
-                   <div className={`flex items-center transition-all duration-300 bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 ${isSearchExpanded ? 'w-full shadow-sm ring-1 ring-[#cc0033]/20' : 'w-10'} shadow-[0_6px_16px_rgba(15,23,42,0.04)]`}>
-                      <button onClick={() => setIsSearchExpanded(!isSearchExpanded)} className="p-1 text-[var(--text-muted)] hover:text-[#cc0033]">
+                   <div className="flex w-full items-center bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
+                      <span className="p-1 text-[var(--text-muted)]">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      </button>
-                      {isSearchExpanded && (
-                        <input 
-                          autoFocus
-                          placeholder="Search chats..."
-                          className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                      )}
+                      </span>
+                      <input
+                        placeholder="Search chats..."
+                        className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
                    </div>
                 </div>
 
@@ -640,19 +792,13 @@ export default function ChatHub() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                   <div className="flex items-center gap-2">
-                      <select
-                          value={selectedModelId}
-                          onChange={(e) => setSelectedModelId(e.target.value)}
-                          className="text-[10px] font-black text-[var(--text-secondary)] hover:text-scarlet bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
-                      >
-                          {CHAT_MODEL_OPTIONS.map((model) => (
-                              <option key={model.id} value={model.id}>
-                                  {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
-                              </option>
-                          ))}
-                      </select>
-                   </div>
+                   <button
+                      type="button"
+                      onClick={handleOpenModelSelector}
+                      className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--text-secondary)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-all hover:border-scarlet hover:text-scarlet"
+                   >
+                      Choose LLM(s)
+                   </button>
                    
                    <button
                       type="submit"
@@ -667,6 +813,9 @@ export default function ChatHub() {
             </div>
             
             <div className="mt-4 flex flex-col items-center gap-1">
+               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-scarlet text-center">
+                 {selectedModelOptions.map((model) => model.label).join(' • ')}
+               </p>
                <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
                  {getChatModelOption(selectedModelId).description}
                </p>

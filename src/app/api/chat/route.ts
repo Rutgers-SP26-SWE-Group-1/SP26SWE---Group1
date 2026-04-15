@@ -73,60 +73,6 @@ Answering rules for transit questions:
 }
 
 /**
- * PRODUCER: Google Gemini (Universal Cloud)
- */
-async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  // Keeping your specific working model string
-  const modelName = "gemini-2.5-flash"; 
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: messages.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        })),
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Gemini Error: ${error.error?.message || response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
-}
-
-/**
- * PRODUCER: Groq (Universal Cloud Llama)
- */
-async function requestGroq(messages: ChatMessage[], apiKey: string) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages: messages,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Groq API failed with status ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-/**
  * PRODUCER: Local Ollama (Local Development)
  */
 async function requestOllama(messages: ChatMessage[], model: string) {
@@ -189,21 +135,7 @@ export async function POST(request: Request) {
     let content = '';
     const startTime = Date.now();
 
-    // ROUTING LOGIC
-    if (selectedModel.provider === 'google') {
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      if (!apiKey) throw new Error("Google API Key missing in environment.");
-      content = await requestGemini(promptMessages, apiKey);
-    } 
-    else if (selectedModel.provider === 'groq') {
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) throw new Error("Groq API Key missing in environment.");
-      content = await requestGroq(promptMessages, apiKey);
-    } 
-    else {
-      // Local Ollama Models [cite: 13, 14]
-      content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
-    }
+    content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
 
     const conversationId = createConversationId(body?.conversationId);
 
