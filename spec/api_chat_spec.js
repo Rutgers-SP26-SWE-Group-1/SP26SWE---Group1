@@ -22,7 +22,7 @@ describe("POST /api/chat - AI Chat Endpoint", function() {
 
   it("should return 200 and a non-empty response for a valid message", async function() {
     const { status, data } = await postChat({ message: "What is Software Engineering?", 
-      modelId: "gemini-1.5-flash"});
+      modelId: "mistral"});
     expect(status).toBe(200);
     expect(data.content).toBeDefined();
     expect(data.content.length).toBeGreaterThan(0);

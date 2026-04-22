@@ -4,7 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import LogoutButton from '@/components/LogoutButton';
+import { detectMathReasoningRequest, resolveChatModelId } from '@/lib/chat-logic';
 import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
+import { getRutgersLoadingState } from '@/lib/rutgers-course-weather';
 import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
@@ -32,6 +34,11 @@ type ConversationSearchResult = {
 };
 
 const STORAGE_KEY = 'scarlet-ai-conversations';
+const STEP_BY_STEP_THINKING_MESSAGES = [
+  'Understanding problem...',
+  'Planning solution...',
+  'Generating explanation...',
+];
 
 function createUntitledConversation(): Conversation {
   const now = new Date().toISOString();
@@ -81,6 +88,12 @@ export default function ChatHub() {
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [stepByStepMode, setStepByStepMode] = useState(false);
+  const [thinkingMessageIndex, setThinkingMessageIndex] = useState(0);
+  const [activeThinkingModelId, setActiveThinkingModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [isStepByStepRequest, setIsStepByStepRequest] = useState(false);
+  const [loadingTitle, setLoadingTitle] = useState<string | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   
   // UI STATES
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -261,6 +274,19 @@ export default function ChatHub() {
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [input]);
 
+  useEffect(() => {
+    if (!isGenerating || !isStepByStepRequest) {
+      setThinkingMessageIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setThinkingMessageIndex((current) => (current + 1) % STEP_BY_STEP_THINKING_MESSAGES.length);
+    }, 900);
+
+    return () => window.clearInterval(intervalId);
+  }, [isGenerating, isStepByStepRequest]);
+
   const handleNewChat = () => {
     const freshConversation = createUntitledConversation();
     setConversations((current) => [freshConversation, ...current]);
@@ -336,6 +362,19 @@ export default function ChatHub() {
     setError(null);
     setIsGenerating(true);
 
+    const mathRequestDetected = detectMathReasoningRequest(trimmedInput, stepByStepMode);
+    const resolvedModelId = resolveChatModelId(selectedModelId, {
+      stepByStepMode,
+      isMathRequest: mathRequestDetected,
+    });
+    const usesStepByStepFlow = stepByStepMode || mathRequestDetected;
+    const rutgersLoadingState = getRutgersLoadingState(trimmedInput);
+    setActiveThinkingModelId(resolvedModelId);
+    setIsStepByStepRequest(usesStepByStepFlow);
+    setThinkingMessageIndex(0);
+    setLoadingTitle(rutgersLoadingState?.title ?? null);
+    setLoadingDetail(rutgersLoadingState?.detail ?? null);
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -345,6 +384,7 @@ export default function ChatHub() {
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
           modelId: selectedModelId,
+          stepByStepMode,
           userName,
         }),
       });
@@ -378,6 +418,10 @@ export default function ChatHub() {
       setError(requestError instanceof Error ? requestError.message : 'Unable to send your message.');
     } finally {
       setIsGenerating(false);
+      setIsStepByStepRequest(false);
+      setThinkingMessageIndex(0);
+      setLoadingTitle(null);
+      setLoadingDetail(null);
     }
   };
 
@@ -585,7 +629,10 @@ export default function ChatHub() {
                 </div>
               )}
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
+                  <div
+                    data-testid={msg.role === 'user' ? 'user-message' : 'assistant-message'}
+                    className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}
+                  >
                   {msg.content}
                 </div>
               </div>
@@ -600,15 +647,24 @@ export default function ChatHub() {
                   <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
                 </div>
               </div>
-              <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[200px]">
+              <div data-testid="thinking-state" className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[220px]">
                 <div className="flex gap-1.5 items-center">
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
-                  {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
+                  {loadingTitle ?? `Thinking with ${getChatModelOption(activeThinkingModelId).label}...`}
                 </span>
+                {loadingDetail ? (
+                  <p data-testid="loading-phase" className="text-sm font-semibold text-[var(--text-primary)]">
+                    {loadingDetail}
+                  </p>
+                ) : isStepByStepRequest && (
+                  <p data-testid="thinking-phase" className="text-sm font-semibold text-[var(--text-primary)]">
+                    {STEP_BY_STEP_THINKING_MESSAGES[thinkingMessageIndex]}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -632,10 +688,29 @@ export default function ChatHub() {
                 rows={1}
               />
               
-              <div className="flex items-center justify-between px-4 pb-3 pt-1 border-t border-[var(--input-border)]">
-                <div className="flex gap-2">
+              <div className="flex items-center justify-between px-4 pb-3 pt-1 border-t border-[var(--input-border)] gap-4">
+                <div className="flex items-center gap-3 flex-wrap">
                    <button type="button" className="p-2 text-[var(--text-muted)] hover:text-scarlet transition-colors">
                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                   </button>
+                   <button
+                     type="button"
+                     aria-label="Step-by-Step Mode"
+                     aria-pressed={stepByStepMode}
+                     data-testid="step-by-step-toggle"
+                     onClick={() => setStepByStepMode((current) => !current)}
+                     className={`inline-flex items-center gap-3 rounded-xl border px-4 py-2.5 transition-colors ${
+                       stepByStepMode
+                         ? 'border-scarlet/40 bg-[rgba(204,0,51,0.08)] text-scarlet'
+                         : 'border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--text-secondary)]'
+                     }`}
+                   >
+                     <span className="flex flex-col text-left leading-tight">
+                       <span className="text-[10px] font-black uppercase tracking-widest">Step-by-Step Mode</span>
+                       <span className="text-[10px] font-semibold normal-case opacity-80">
+                         {stepByStepMode ? 'In use for math reasoning' : 'Click to use for math reasoning'}
+                       </span>
+                     </span>
                    </button>
                 </div>
 
@@ -648,7 +723,7 @@ export default function ChatHub() {
                       >
                           {CHAT_MODEL_OPTIONS.map((model) => (
                               <option key={model.id} value={model.id}>
-                                  {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
+                                  {model.label} (Local)
                               </option>
                           ))}
                       </select>
@@ -672,6 +747,11 @@ export default function ChatHub() {
                </p>
                <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
                  {getChatModelOption(selectedModelId).details}
+               </p>
+               <p className="text-[9px] font-bold text-[var(--text-muted)] text-center uppercase tracking-[0.16em]">
+                 {stepByStepMode
+                   ? 'Step-by-Step Mode is on. Math requests will use DeepSeek R1.'
+                   : 'Math questions can auto-switch to DeepSeek R1 for structured reasoning.'}
                </p>
             </div>
           </div>

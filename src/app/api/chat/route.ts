@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import {
   createConversationId,
+  detectMathReasoningRequest,
+  detectRutgersCourseWeatherRequest,
+  resolveChatModelId,
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
 import { getChatModelOption } from '@/lib/chat-models';
+import { handleRutgersCourseWeatherRequest } from '@/lib/rutgers-course-weather';
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -34,6 +38,42 @@ Tone:
 - student-friendly, not robotic
 - direct and easy to understand
 `.trim();
+
+const STEP_BY_STEP_REASONING_PROMPT = `
+You are Scarlet AI in Step-by-Step Mode, acting as a careful math tutor.
+
+Rules:
+- Solve the student's math problem clearly and educationally.
+- Do not reveal hidden chain-of-thought or private reasoning.
+- Provide only a concise teaching explanation.
+- Always respond using exactly these headings in this exact order:
+
+Understanding:
+<short description of the problem>
+
+Step 1:
+<first step>
+
+Step 2:
+<second step>
+
+Step 3:
+<third step>
+
+Final Answer:
+<final result>
+
+- Keep each section short and student-friendly.
+- Even for simple problems, include all sections and use Step 3 for checking or concluding the result.
+`.trim();
+
+const STEP_BY_STEP_SECTIONS = [
+  'Understanding',
+  'Step 1',
+  'Step 2',
+  'Step 3',
+  'Final Answer',
+] as const;
 
 function buildRutgersGroundingContext(message: string) {
   const normalized = message.toLowerCase();
@@ -72,58 +112,81 @@ Answering rules for transit questions:
   `.trim();
 }
 
-/**
- * PRODUCER: Google Gemini (Universal Cloud)
- */
-async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  // Keeping your specific working model string
-  const modelName = "gemini-2.5-flash"; 
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: messages.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        })),
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Gemini Error: ${error.error?.message || response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * PRODUCER: Groq (Universal Cloud Llama)
- */
-async function requestGroq(messages: ChatMessage[], apiKey: string) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages: messages,
-    }),
-  });
+function extractLabeledSection(content: string, label: string) {
+  const labelsPattern = STEP_BY_STEP_SECTIONS.map(escapeRegExp).join('|');
+  const regex = new RegExp(
+    `${escapeRegExp(label)}:\\s*([\\s\\S]*?)(?=\\n(?:${labelsPattern}):|$)`,
+    'i'
+  );
+  const match = content.match(regex);
+  return match?.[1]?.trim() ?? '';
+}
 
-  if (!response.ok) {
-    throw new Error(`Groq API failed with status ${response.status}`);
+function splitIntoTeachingChunks(content: string) {
+  return content
+    .split(/\n\s*\n|(?<=\.)\s+(?=[A-Z])|(?<=\d)\.\s+/)
+    .map((segment) => segment.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean);
+}
+
+function formatStepByStepResponse(content: string, question: string) {
+  const understanding = extractLabeledSection(content, 'Understanding');
+  const step1 = extractLabeledSection(content, 'Step 1');
+  const step2 = extractLabeledSection(content, 'Step 2');
+  const step3 = extractLabeledSection(content, 'Step 3');
+  const finalAnswer = extractLabeledSection(content, 'Final Answer');
+
+  const hasAllSections =
+    understanding && step1 && step2 && step3 && finalAnswer;
+
+  if (hasAllSections) {
+    return [
+      'Understanding:',
+      understanding,
+      '',
+      'Step 1:',
+      step1,
+      '',
+      'Step 2:',
+      step2,
+      '',
+      'Step 3:',
+      step3,
+      '',
+      'Final Answer:',
+      finalAnswer,
+    ].join('\n');
   }
 
-  const data = await response.json();
-  return data.choices[0].message.content;
+  const segments = splitIntoTeachingChunks(content);
+  const fallbackUnderstanding =
+    understanding || `We need to solve: ${question.trim()}`;
+  const fallbackStep1 = step1 || segments[0] || 'Identify the quantities, symbols, and goal of the problem.';
+  const fallbackStep2 = step2 || segments[1] || 'Apply the correct math rule or operation carefully.';
+  const fallbackStep3 = step3 || segments[2] || 'Check the result and make sure it answers the original question.';
+  const fallbackFinalAnswer =
+    finalAnswer || segments[segments.length - 1] || 'The solution is shown above.';
+
+  return [
+    'Understanding:',
+    fallbackUnderstanding,
+    '',
+    'Step 1:',
+    fallbackStep1,
+    '',
+    'Step 2:',
+    fallbackStep2,
+    '',
+    'Step 3:',
+    fallbackStep3,
+    '',
+    'Final Answer:',
+    fallbackFinalAnswer,
+  ].join('\n');
 }
 
 /**
@@ -149,7 +212,7 @@ async function requestOllama(messages: ChatMessage[], model: string) {
 
     const data = await response.json();
     return data.message.content;
-  } catch (err) {
+  } catch {
     throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
   }
 }
@@ -166,7 +229,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const selectedModel = getChatModelOption(body?.modelId);
+    const stepByStepMode = body?.stepByStepMode === true;
+    const isMathRequest = detectMathReasoningRequest(
+      validation.normalizedMessage,
+      stepByStepMode
+    );
+    const rutgersLiveRequest = detectRutgersCourseWeatherRequest(
+      validation.normalizedMessage
+    );
+    const resolvedModelId = resolveChatModelId(body?.modelId, {
+      stepByStepMode,
+      isMathRequest,
+    });
+    const selectedModel = getChatModelOption(resolvedModelId);
     const messages = sanitizeMessages(body?.messages ?? []);
     
     // Ensure history is sent to the LLM for context memory [cite: 10, 35]
@@ -180,6 +255,7 @@ export async function POST(request: Request) {
     const promptMessages: ChatMessage[] = [
       { role: 'system', content: RUTGERS_SYSTEM_PROMPT },
       ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] : []),
+      ...(isMathRequest ? [{ role: 'system' as const, content: STEP_BY_STEP_REASONING_PROMPT }] : []),
       ...chatHistory,
     ];
 
@@ -189,20 +265,18 @@ export async function POST(request: Request) {
     let content = '';
     const startTime = Date.now();
 
-    // ROUTING LOGIC
-    if (selectedModel.provider === 'google') {
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      if (!apiKey) throw new Error("Google API Key missing in environment.");
-      content = await requestGemini(promptMessages, apiKey);
-    } 
-    else if (selectedModel.provider === 'groq') {
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) throw new Error("Groq API Key missing in environment.");
-      content = await requestGroq(promptMessages, apiKey);
-    } 
-    else {
+    if (rutgersLiveRequest.needsAny) {
+      const toolResponse = await handleRutgersCourseWeatherRequest(
+        validation.normalizedMessage
+      );
+      content = toolResponse.formatted;
+    } else {
       // Local Ollama Models [cite: 13, 14]
       content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
+
+      if (isMathRequest) {
+        content = formatStepByStepResponse(content, validation.normalizedMessage);
+      }
     }
 
     const conversationId = createConversationId(body?.conversationId);
@@ -214,13 +288,15 @@ export async function POST(request: Request) {
       modelId: selectedModel.id,
       modelLabel: selectedModel.label,
       modelDescription: selectedModel.details,
+      stepByStepMode: isMathRequest,
       timestamp: new Date().toISOString(),
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process your message.';
     console.error('POST /api/chat failed:', error);
     return NextResponse.json(
-      { error: error.message || 'Unable to process your message.' },
+      { error: message },
       { status: 503 }
     );
   }

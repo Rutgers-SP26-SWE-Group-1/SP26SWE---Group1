@@ -4,26 +4,10 @@ export type ChatModelOption = {
   description: string;
   details: string;
   ollamaModel?: string;
-  provider: 'ollama' | 'google' | 'groq';
+  provider: 'ollama';
 };
 
 export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
-  // --- UNIVERSAL MODELS (Cloud - Works for everyone) ---
-  {
-    id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Universal (Cloud)',
-    details: 'Fastest cloud model. Works for all online users.',
-    provider: 'google',
-  },
-  {
-    id: 'llama-3-groq',
-    label: 'Llama 3.1',
-    description: 'Universal (Cloud)',
-    details: 'High-speed Llama hosted on Groq. Works for all users.',
-    provider: 'groq',
-  },
-
   // --- LOCAL MODELS (Requires Ollama installation) ---
   {
     id: 'mistral',
