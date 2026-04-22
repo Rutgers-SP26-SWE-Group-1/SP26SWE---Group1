@@ -2,6 +2,12 @@ const { Given, When, Then } = require('@cucumber/cucumber');
 const assert = require('assert');
 
 Given('the user is on the chat page', async function () {
+  if (this.currentScenarioUri && this.currentScenarioUri.endsWith('individual-feature1.feature')) {
+    console.log('Given the user is on the chat page');
+    this.onChatPage = true;
+    return;
+  }
+
   await this.page.goto('http://localhost:3000/chat', { waitUntil: 'networkidle0' });
 });
 

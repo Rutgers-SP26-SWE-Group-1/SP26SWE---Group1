@@ -27,7 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "jasmine": "^6.1.0",
-    "puppeteer": "^24.39.1",
+    "puppeteer": "^24.41.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
