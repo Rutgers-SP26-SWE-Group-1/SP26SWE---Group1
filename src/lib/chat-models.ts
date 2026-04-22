@@ -23,6 +23,19 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
     details: 'High-speed Llama hosted on Groq. Works for all users.',
     provider: 'groq',
   },
+  
+ /* { id: 'claude-3-sonnet', 
+    label: 'Claude 3 Sonnet',
+    description: 'Universal (Cloud)',
+    details: 'AI with strong reasoning. Great for all users.', 
+    provider: 'anthropic' },
+  
+  { id: 'gpt-4o', 
+    label: 'GPT-4o', 
+    description: 'Universal (Cloud)',
+    details: 'Latest OpenAI model. Works for all users.',
+    provider: 'openai' },
+*/
 
   // --- LOCAL MODELS (Requires Ollama installation) ---
   {

@@ -141,6 +141,48 @@ async function requestOllama(messages: ChatMessage[], model: string) {
   return data.message.content;
 }
 
+/**
+ * PRODUCER: Anthropic Claude
+ */
+async function requestClaude(messages: ChatMessage[], apiKey: string) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-sonnet-20240229',
+      max_tokens: 1024,
+      messages: messages.filter(m => m.role !== 'system'), 
+      system: messages.find(m => m.role === 'system')?.content || "",
+    }),
+  });
+  if (!response.ok) throw new Error(`Claude API failed`);
+  const data = await response.json();
+  return data.content[0].text;
+}
+
+/**
+ * PRODUCER: OpenAI GPT-4o
+ */
+async function requestOpenAI(messages: ChatMessage[], apiKey: string) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: messages,
+    }),
+  });
+  if (!response.ok) throw new Error(`OpenAI API failed`);
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
 
 /**
  * MAIN POST HANDLER - UPDATED FOR MULTI-LLM COMPARISON
@@ -182,16 +224,16 @@ export async function POST(request: Request) {
         const start = Date.now();
 
         try {
-          if (modelOption.provider === 'google') {
-            const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-            if (!key) throw new Error("Missing Gemini Key");
-            responseContent = await requestGemini(promptMessages, key);
-          } else if (modelOption.provider === 'groq') {
-            const key = process.env.GROQ_API_KEY;
-            if (!key) throw new Error("Missing Groq Key");
-            responseContent = await requestGroq(promptMessages, key);
-          } else {
-            responseContent = await requestOllama(promptMessages, modelOption.ollamaModel!);
+          switch (modelOption.provider) {
+            case 'google':
+              responseContent = await requestGemini(promptMessages, process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+              break;
+            case 'groq':
+              responseContent = await requestGroq(promptMessages, process.env.GROQ_API_KEY!);
+              break;
+            default:
+              responseContent = await requestOllama(promptMessages, modelOption.ollamaModel!);
+              break;
           }
 
           return {
