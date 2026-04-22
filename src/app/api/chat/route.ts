@@ -11,6 +11,7 @@ type ChatMessage = {
   content: string;
 };
 
+
 const RUTGERS_SYSTEM_PROMPT = `
 You are Scarlet AI, a helpful assistant for Rutgers University students.
 
@@ -93,18 +94,18 @@ async function requestGemini(messages: ChatMessage[], apiKey: string) {
     }
   );
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Gemini Error: ${error.error?.message || response.statusText}`);
-  }
 
+  if (!response.ok) throw new Error(`Gemini Error`);
   const data = await response.json();
   return data.candidates[0].content.parts[0].text;
 }
 
+
+
 /**
  * PRODUCER: Groq (Universal Cloud Llama)
  */
+
 async function requestGroq(messages: ChatMessage[], apiKey: string) {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -117,47 +118,122 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
       messages: messages,
     }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Groq API failed with status ${response.status}`);
-  }
-
+  if (!response.ok) throw new Error(`Groq API failed`);
   const data = await response.json();
   return data.choices[0].message.content;
 }
 
+
+
 /**
  * PRODUCER: Local Ollama (Local Development)
  */
+
 async function requestOllama(messages: ChatMessage[], model: string) {
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-  
-  try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-      }),
-    });
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, stream: false }),
+  });
+  if (!response.ok) throw new Error(`Ollama error`);
+  const data = await response.json();
+  return data.message.content;
+}
 
-    if (!response.ok) {
-      throw new Error(`Ollama model "${model}" not found or service error.`);
+
+/**
+ * MAIN POST HANDLER - UPDATED FOR MULTI-LLM COMPARISON
+ */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const validation = validateChatRequest(body?.message);
+
+    if (!validation.isValid || !validation.normalizedMessage) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const data = await response.json();
-    return data.message.content;
-  } catch (err) {
-    throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
+    // Handle both single string (legacy) and array of IDs (personal iteration)
+    const modelIds: string[] = Array.isArray(body?.modelIds) 
+      ? body.modelIds 
+      : [body?.modelId || 'gemini-1.5-flash'];
+
+    const messages = sanitizeMessages(body?.messages ?? []);
+    const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
+
+    const promptMessages: ChatMessage[] = [
+      { role: 'system', content: RUTGERS_SYSTEM_PROMPT },
+      ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] as ChatMessage[] : []),
+      ...messages.map((m) => ({
+        role: (m.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: m.content,
+      })),
+      { role: 'user', content: validation.normalizedMessage }
+    ];
+
+    const conversationId = createConversationId(body?.conversationId);
+
+    // INDIVIDUAL ITERATION LOGIC: Execute all selected models in parallel
+    const comparisonResults = await Promise.all(
+      modelIds.map(async (id) => {
+        const modelOption = getChatModelOption(id);
+        let responseContent = '';
+        const start = Date.now();
+
+        try {
+          if (modelOption.provider === 'google') {
+            const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+            if (!key) throw new Error("Missing Gemini Key");
+            responseContent = await requestGemini(promptMessages, key);
+          } else if (modelOption.provider === 'groq') {
+            const key = process.env.GROQ_API_KEY;
+            if (!key) throw new Error("Missing Groq Key");
+            responseContent = await requestGroq(promptMessages, key);
+          } else {
+            responseContent = await requestOllama(promptMessages, modelOption.ollamaModel!);
+          }
+
+          return {
+            modelId: id,
+            modelLabel: modelOption.label,
+            content: responseContent.trim(),
+            durationMs: Date.now() - start,
+            status: 'success'
+          };
+        } catch (err: any) {
+          return {
+            modelId: id,
+            modelLabel: modelOption.label,
+            content: `Error: ${err.message}`,
+            durationMs: Date.now() - start,
+            status: 'error'
+          };
+        }
+      })
+    );
+
+    return NextResponse.json({
+      conversationId,
+      responses: comparisonResults, // Returns an array of answers for side-by-side view
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    console.error('POST /api/chat failed:', error);
+    return NextResponse.json(
+      { error: error.message || 'Unable to process your message.' },
+      { status: 503 }
+    );
   }
 }
+
+
 
 /**
  * MAIN POST HANDLER
  */
-export async function POST(request: Request) {
+/*export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validation = validateChatRequest(body?.message);
@@ -225,3 +301,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
+*/

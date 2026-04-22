@@ -121,3 +121,34 @@ module.exports = {
   sanitizeMessages,
   validateChatRequest,
 };
+
+
+/* personal iteration */
+
+function validateMultiModelSelection(models) {
+  // If models is undefined or an empty array
+  if (!models || models.length === 0) {
+    return { 
+      isValid: false, 
+      error: "Please select at least one model to compare." 
+    };
+  }
+  // Success state for the unit test
+  return { 
+    isValid: true, 
+    count: models.length 
+  };
+}
+
+// CONSOLIDATED EXPORT: This ensures Jasmine sees both the group functions and your new function
+module.exports = {
+  MAX_MESSAGE_LENGTH,
+  validateMessage,      
+  formatChatPayload,    
+  sanitizeInput,        
+  buildFallbackReply,
+  createConversationId,
+  sanitizeMessages,
+  validateChatRequest,
+  validateMultiModelSelection // Added for your personal iteration
+};
