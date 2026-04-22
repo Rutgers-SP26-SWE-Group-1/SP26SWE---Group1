@@ -4,6 +4,8 @@ Feature 3: Search conversation history (search by title and message contents). [
 Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
 Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
 Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 7: Add Claude backend support and routing with Anthropic API. [Branch: feature/ci-cd-setup] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/2
+Feature 8: Add GPT backend support and routing with OpenAI API. [Branch: feature/ci-cd-setup] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/2
 
 Requirements Team Mapping:
 
