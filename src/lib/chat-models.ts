@@ -4,7 +4,7 @@ export type ChatModelOption = {
   description: string;
   details: string;
   ollamaModel?: string;
-  provider: 'ollama' | 'google' | 'groq';
+  provider: 'ollama' | 'google' | 'groq' | 'openai';
 };
 
 export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
@@ -22,6 +22,13 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
     description: 'Universal (Cloud)',
     details: 'High-speed Llama hosted on Groq. Works for all users.',
     provider: 'groq',
+  },
+  {
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    description: 'Universal (Cloud)',
+    details: 'OpenAI GPT model. High quality general-purpose responses.',
+    provider: 'openai',
   },
 
   // --- LOCAL MODELS (Requires Ollama installation) ---
