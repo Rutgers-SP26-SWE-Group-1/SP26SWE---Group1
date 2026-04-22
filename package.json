@@ -43,7 +43,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/issues"
   },
