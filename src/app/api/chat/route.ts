@@ -127,6 +127,37 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
 }
 
 /**
+ * PRODUCER: Anthropic Claude (Universal Cloud)
+ */
+async function requestClaude(messages: ChatMessage[], apiKey: string) {
+  const systemMessages = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
+  const chatMessages = messages.filter((m) => m.role !== 'system');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: systemMessages,
+      messages: chatMessages,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Anthropic Error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.content[0].text;
+}
+
+/**
  * PRODUCER: Local Ollama (Local Development)
  */
 async function requestOllama(messages: ChatMessage[], model: string) {
@@ -199,7 +230,12 @@ export async function POST(request: Request) {
       const apiKey = process.env.GROQ_API_KEY;
       if (!apiKey) throw new Error("Groq API Key missing in environment.");
       content = await requestGroq(promptMessages, apiKey);
-    } 
+    }
+    else if (selectedModel.provider === 'anthropic') {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("Anthropic API Key missing in environment.");
+      content = await requestClaude(promptMessages, apiKey);
+    }
     else {
       // Local Ollama Models [cite: 13, 14]
       content = await requestOllama(promptMessages, selectedModel.ollamaModel!);

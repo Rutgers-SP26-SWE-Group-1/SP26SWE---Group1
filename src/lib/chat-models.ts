@@ -4,7 +4,7 @@ export type ChatModelOption = {
   description: string;
   details: string;
   ollamaModel?: string;
-  provider: 'ollama' | 'google' | 'groq';
+  provider: 'ollama' | 'google' | 'groq' | 'anthropic';
 };
 
 export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
@@ -22,6 +22,14 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
     description: 'Universal (Cloud)',
     details: 'High-speed Llama hosted on Groq. Works for all users.',
     provider: 'groq',
+  },
+
+  {
+    id: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    description: 'Universal (Cloud)',
+    details: 'Anthropic Claude via API. Works for all online users.',
+    provider: 'anthropic',
   },
 
   // --- LOCAL MODELS (Requires Ollama installation) ---
