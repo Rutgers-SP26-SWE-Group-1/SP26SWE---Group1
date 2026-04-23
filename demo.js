@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 const puppeteer = require('puppeteer');
 
 (async () => {
@@ -61,5 +63,20 @@ const puppeteer = require('puppeteer');
 
   console.log("🏁 3 LLMs Responded Successfully. Recording finished.");
   await new Promise(r => setTimeout(r, 6000));
+
+
+  // Create the folder if it doesn't exist
+  if (!fs.existsSync('./test-screenshots')) {
+    fs.mkdirSync('./test-screenshots');
+  }
+  
+  console.log("📸 Taking a screenshot for the TA...");
+  // Take the screenshot and save it
+  await page.screenshot({ 
+    path: './test-screenshots/multi-llm-result.png', 
+    fullPage: true 
+  });
+
+
   await browser.close();
 })();

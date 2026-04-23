@@ -16,6 +16,7 @@ describe('Multi-LLM Comparison Acceptance Test', () => {
 
   // Teardown: Close the browser after the test
   afterAll(async () => {
+
     await browser.close();
   });
 

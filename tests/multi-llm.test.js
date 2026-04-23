@@ -47,5 +47,6 @@ const puppeteer = require('puppeteer');
   console.log("✅ Verification Passed: 3 distinct LLM responses rendered simultaneously.");
   
   await new Promise(r => setTimeout(r, 3000));
+
   await browser.close();
 })();
