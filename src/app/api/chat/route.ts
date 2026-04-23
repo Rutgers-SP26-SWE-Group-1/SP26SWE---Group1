@@ -11,7 +11,6 @@ type ChatMessage = {
   content: string;
 };
 
-
 const RUTGERS_SYSTEM_PROMPT = `
 You are Scarlet AI, a helpful assistant for Rutgers University students.
 
@@ -77,7 +76,6 @@ Answering rules for transit questions:
  * PRODUCER: Google Gemini (Universal Cloud)
  */
 async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  // Keeping your specific working model string
   const modelName = "gemini-2.5-flash"; 
 
   const response = await fetch(
@@ -94,18 +92,14 @@ async function requestGemini(messages: ChatMessage[], apiKey: string) {
     }
   );
 
-
   if (!response.ok) throw new Error(`Gemini Error`);
   const data = await response.json();
   return data.candidates[0].content.parts[0].text;
 }
 
-
-
 /**
  * PRODUCER: Groq (Universal Cloud Llama)
  */
-
 async function requestGroq(messages: ChatMessage[], apiKey: string) {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -123,12 +117,9 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
   return data.choices[0].message.content;
 }
 
-
-
 /**
  * PRODUCER: Local Ollama (Local Development)
  */
-
 async function requestOllama(messages: ChatMessage[], model: string) {
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
@@ -136,56 +127,13 @@ async function requestOllama(messages: ChatMessage[], model: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, messages, stream: false }),
   });
-  if (!response.ok) throw new Error(`Ollama error`);
+  if (!response.ok) throw new Error(`Ollama failed to load ${model}`);
   const data = await response.json();
   return data.message.content;
 }
 
 /**
- * PRODUCER: Anthropic Claude
- */
-async function requestClaude(messages: ChatMessage[], apiKey: string) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-3-sonnet-20240229',
-      max_tokens: 1024,
-      messages: messages.filter(m => m.role !== 'system'), 
-      system: messages.find(m => m.role === 'system')?.content || "",
-    }),
-  });
-  if (!response.ok) throw new Error(`Claude API failed`);
-  const data = await response.json();
-  return data.content[0].text;
-}
-
-/**
- * PRODUCER: OpenAI GPT-4o
- */
-async function requestOpenAI(messages: ChatMessage[], apiKey: string) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: messages,
-    }),
-  });
-  if (!response.ok) throw new Error(`OpenAI API failed`);
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-/**
- * MAIN POST HANDLER - UPDATED FOR MULTI-LLM COMPARISON
+ * MAIN POST HANDLER - SMART QUEUING ENABLED
  */
 export async function POST(request: Request) {
   try {
@@ -196,10 +144,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    // Handle both single string (legacy) and array of IDs (personal iteration)
     const modelIds: string[] = Array.isArray(body?.modelIds) 
       ? body.modelIds 
-      : [body?.modelId || 'gemini-1.5-flash'];
+      : [body?.modelId || 'gemini-2.5-flash'];
 
     const messages = sanitizeMessages(body?.messages ?? []);
     const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
@@ -216,48 +163,80 @@ export async function POST(request: Request) {
 
     const conversationId = createConversationId(body?.conversationId);
 
-    // INDIVIDUAL ITERATION LOGIC: Execute all selected models in parallel
-    const comparisonResults = await Promise.all(
-      modelIds.map(async (id) => {
-        const modelOption = getChatModelOption(id);
-        let responseContent = '';
-        const start = Date.now();
+    // RESOURCE QUEUING: Separate models to prevent local memory crashes
+    const cloudModelIds = modelIds.filter(id => getChatModelOption(id).provider !== 'ollama');
+    const localModelIds = modelIds.filter(id => getChatModelOption(id).provider === 'ollama');
 
-        try {
-          switch (modelOption.provider) {
-            case 'google':
-              responseContent = await requestGemini(promptMessages, process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-              break;
-            case 'groq':
-              responseContent = await requestGroq(promptMessages, process.env.GROQ_API_KEY!);
-              break;
-            default:
-              responseContent = await requestOllama(promptMessages, modelOption.ollamaModel!);
-              break;
-          }
+    // 1. EXECUTE CLOUD MODELS IN PARALLEL
+    const cloudPromises = cloudModelIds.map(async (id) => {
+      const modelOption = getChatModelOption(id);
+      let responseContent = '';
+      const start = Date.now();
 
-          return {
-            modelId: id,
-            modelLabel: modelOption.label,
-            content: responseContent.trim(),
-            durationMs: Date.now() - start,
-            status: 'success'
-          };
-        } catch (err: any) {
-          return {
-            modelId: id,
-            modelLabel: modelOption.label,
-            content: `Error: ${err.message}`,
-            durationMs: Date.now() - start,
-            status: 'error'
-          };
+      try {
+        switch (modelOption.provider) {
+          case 'google':
+            responseContent = await requestGemini(promptMessages, process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+            break;
+          case 'groq':
+            responseContent = await requestGroq(promptMessages, process.env.GROQ_API_KEY!);
+            break;
         }
-      })
-    );
+
+        return {
+          modelId: id,
+          modelLabel: modelOption.label,
+          content: responseContent.trim(),
+          durationMs: Date.now() - start,
+          status: 'success'
+        };
+      } catch (err: any) {
+        return {
+          modelId: id,
+          modelLabel: modelOption.label,
+          content: `Error: ${err.message}`,
+          durationMs: Date.now() - start,
+          status: 'error'
+        };
+      }
+    });
+
+    const cloudResults = await Promise.all(cloudPromises);
+
+    // 2. EXECUTE LOCAL MODELS SEQUENTIALLY
+    const localResults = [];
+    for (const id of localModelIds) {
+      const modelOption = getChatModelOption(id);
+      let responseContent = '';
+      const start = Date.now();
+
+      try {
+        responseContent = await requestOllama(promptMessages, modelOption.ollamaModel!);
+        
+        localResults.push({
+          modelId: id,
+          modelLabel: modelOption.label,
+          content: responseContent.trim(),
+          durationMs: Date.now() - start,
+          status: 'success'
+        });
+      } catch (err: any) {
+        localResults.push({
+          modelId: id,
+          modelLabel: modelOption.label,
+          content: `Error: ${err.message}`,
+          durationMs: Date.now() - start,
+          status: 'error'
+        });
+      }
+    }
+
+    // COMBINE RESULTS
+    const comparisonResults = [...cloudResults, ...localResults];
 
     return NextResponse.json({
       conversationId,
-      responses: comparisonResults, // Returns an array of answers for side-by-side view
+      responses: comparisonResults,
       timestamp: new Date().toISOString(),
     });
 

@@ -14,6 +14,599 @@ type Message = {
   modelId?: string;
   modelLabel?: string;
   modelDescription?: string;
+  comparisonResponses?: {
+    modelId: string;
+    modelLabel: string;
+    content: string;
+    durationMs: number;
+    status: string;
+  }[];
+};
+
+type Conversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
+};
+
+type ConversationSearchResult = {
+  conversation: Conversation;
+  preview: string;
+  matchType: 'title' | 'message';
+  rank: number;
+};
+
+const STORAGE_KEY = 'scarlet-ai-conversations';
+
+function createUntitledConversation(): Conversation {
+  const now = new Date().toISOString();
+  return {
+    id:
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `conversation-${Date.now()}`,
+    title: 'New chat',
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  };
+}
+
+function deriveTitle(message: string) {
+  return message.trim().split(/\s+/).slice(0, 6).join(' ').slice(0, 48) || 'New chat';
+}
+
+function buildSearchPreview(text: string, query: string, maxLength = 80) {
+  const normalizedText = text.toLowerCase();
+  const matchIndex = normalizedText.indexOf(query);
+
+  if (matchIndex === -1) {
+    return text.slice(0, maxLength).trim();
+  }
+
+  const previewStart = Math.max(0, matchIndex - 24);
+  const previewEnd = Math.min(text.length, matchIndex + query.length + 40);
+  const excerpt = text.slice(previewStart, previewEnd).trim();
+
+  const prefix = previewStart > 0 ? '...' : '';
+  const suffix = previewEnd < text.length ? '...' : '';
+
+  return `${prefix}${excerpt}${suffix}`;
+}
+
+export default function ChatHub() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string>('');
+  const [input, setInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userMajor, setUserMajor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
+  
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_CHAT_MODEL.id]);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const sidebarMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+  const profileHref = userEmail ? '/profile' : '/login';
+
+  const toggleModelSelection = (id: string) => {
+    setSelectedModelIds(prev => 
+      prev.includes(id) 
+        ? (prev.length > 1 ? prev.filter(m => m !== id) : prev) 
+        : [...prev, id]
+    );
+  };
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+
+  const filteredConversations: ConversationSearchResult[] = conversations
+    .map((conversation) => {
+      if (!normalizedSearchQuery) {
+        return {
+          conversation,
+          preview: new Date(conversation.updatedAt).toLocaleString([], {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }),
+          matchType: 'title' as const,
+          rank: 0,
+        };
+      }
+
+      const normalizedTitle = conversation.title.toLowerCase();
+      const titleIndex = normalizedTitle.indexOf(normalizedSearchQuery);
+
+      if (titleIndex !== -1) {
+        return {
+          conversation,
+          preview: `Title match: ${buildSearchPreview(conversation.title, normalizedSearchQuery, 60)}`,
+          matchType: 'title' as const,
+          rank: titleIndex,
+        };
+      }
+
+      const matchingMessage = conversation.messages.find((message) =>
+        message.content.toLowerCase().includes(normalizedSearchQuery)
+      );
+
+      if (!matchingMessage) {
+        return null;
+      }
+
+      const messageIndex = matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery);
+
+      return {
+        conversation,
+        preview: buildSearchPreview(matchingMessage.content, normalizedSearchQuery),
+        matchType: 'message' as const,
+        rank: messageIndex + 1000,
+      };
+    })
+    .filter((result): result is ConversationSearchResult => result !== null)
+    .sort((a, b) => {
+      if (normalizedSearchQuery && a.matchType !== b.matchType) {
+        return a.matchType === 'title' ? -1 : 1;
+      }
+      if (normalizedSearchQuery && a.rank !== b.rank) {
+        return a.rank - b.rank;
+      }
+      return (
+        new Date(b.conversation.updatedAt).getTime() - new Date(a.conversation.updatedAt).getTime()
+      );
+    });
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (sidebarMenuRef.current && !sidebarMenuRef.current.contains(event.target as Node)) {
+        setMenuOpenId(null);
+      }
+      if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
+        setIsModelMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const getUser = async () => {
+      if (!supabase) {
+        setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest');
+        return;
+      }
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error) throw error;
+        if (user) {
+          setUserEmail(user.email ?? null);
+          setUserName(user.user_metadata?.full_name || 'Scarlet Knight');
+          setUserMajor(user.user_metadata?.major || 'Student');
+        } else {
+          setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest');
+        }
+      } catch (authError) {
+        console.error('Unable to load Supabase user:', authError);
+        setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest');
+        setError(SUPABASE_ERROR_MESSAGE);
+      }
+    };
+    getUser();
+  }, []);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as Conversation[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setConversations(parsed);
+          setActiveConversationId(parsed[0].id);
+          setHasLoadedLocalState(true);
+          return;
+        }
+      } catch (storageError) {
+        console.error('Failed to parse saved conversations:', storageError);
+      }
+    }
+    const freshConversation = createUntitledConversation();
+    setConversations([freshConversation]);
+    setActiveConversationId(freshConversation.id);
+    setHasLoadedLocalState(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedLocalState) return;
+    if (conversations.length === 0) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  }, [conversations, hasLoadedLocalState]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeConversation?.messages.length, isGenerating]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    const lineHeight = 24;
+    const maxHeight = lineHeight * 6;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [input]);
+
+  const handleNewChat = () => {
+    const freshConversation = createUntitledConversation();
+    setConversations((current) => [freshConversation, ...current]);
+    setActiveConversationId(freshConversation.id);
+    setInput('');
+    setError(null);
+    setEditingId(null);
+    setMenuOpenId(null);
+  };
+
+  const handleSelectConversation = (conversationId: string) => {
+    setActiveConversationId(conversationId);
+    setError(null);
+    setMenuOpenId(null);
+  };
+
+  const handleUpdateTitle = (id: string) => {
+    if (!editTitle.trim()) {
+      setEditingId(null);
+      return;
+    }
+    setConversations(prev => prev.map(c => 
+      c.id === id ? { ...c, title: editTitle, updatedAt: new Date().toISOString() } : c
+    ));
+    setEditingId(null);
+  };
+
+  const handleDeleteConversation = (conversationId: string) => {
+    const conversationToDelete = conversations.find((conversation) => conversation.id === conversationId);
+    if (!conversationToDelete) return;
+    const shouldDelete = window.confirm(`Are you sure you want to delete "${conversationToDelete.title}"?`);
+    if (!shouldDelete) return;
+    const remainingConversations = conversations.filter(c => c.id !== conversationId);
+    if (remainingConversations.length === 0) {
+      const freshConversation = createUntitledConversation();
+      setConversations([freshConversation]);
+      setActiveConversationId(freshConversation.id);
+    } else {
+      setConversations(remainingConversations);
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(remainingConversations[0].id);
+      }
+    }
+    setMenuOpenId(null);
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedInput = input.trim();
+    if (!trimmedInput || !activeConversation || isGenerating) return;
+
+    const userMessage: Message = { role: 'user', content: trimmedInput };
+    const updatedConversation: Conversation = {
+      ...activeConversation,
+      title: activeConversation.messages.length === 0 ? deriveTitle(trimmedInput) : activeConversation.title,
+      updatedAt: new Date().toISOString(),
+      messages: [...activeConversation.messages, userMessage],
+    };
+
+    setConversations((current) =>
+      current
+        .map((conversation) => conversation.id === activeConversation.id ? updatedConversation : conversation)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    );
+    setInput('');
+    setError(null);
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: trimmedInput,
+          conversationId: activeConversation.id,
+          messages: updatedConversation.messages,
+          modelIds: selectedModelIds,
+          userName,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.responses) throw new Error(data.error || 'Comparison failed.');
+
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: data.responses[0].content, 
+        comparisonResponses: data.responses,
+      };
+
+      setConversations((current) =>
+        current.map((conversation) => {
+          if (conversation.id !== activeConversation.id) return conversation;
+          return {
+            ...conversation,
+            id: data.conversationId || conversation.id,
+            updatedAt: new Date().toISOString(),
+            messages: [...updatedConversation.messages, assistantMessage],
+          };
+        }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      );
+      if (data.conversationId) setActiveConversationId(data.conversationId);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to send your message.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!input.trim() || !activeConversation || isGenerating) return;
+      void handleSendMessage(e);
+    }
+  };
+
+  // UI Helpers
+  const userFirstName = userName?.split(' ')[0] || 'there';
+  const selectedModelLabels = selectedModelIds.map(id => getChatModelOption(id).label).join(', ');
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
+      
+      {/* SIDEBAR */}
+      <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] shadow-xl flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
+        <div className={isSidebarOpen ? "w-72" : "w-12 flex flex-col items-center"}>
+          <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
+            <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
+            {isSidebarOpen && (
+                <span className="font-black text-xl tracking-tight uppercase">
+                    SCARLET <span className="text-scarlet">AI</span>
+                </span>
+            )}
+          </Link>
+
+          {isSidebarOpen && (
+              <>
+                <button onClick={handleNewChat} className="w-full py-3 mb-4 border-2 border-dashed border-[var(--input-border)] rounded-xl text-[var(--text-secondary)] font-bold hover:border-scarlet hover:text-scarlet transition-all">+ New Chat</button>
+
+                {/* UPDATED PROFESSIONAL SEARCH BAR */}
+                <div className="w-full mb-6 relative">
+                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[var(--text-muted)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </div>
+                  <input 
+                    placeholder="Search history..."
+                    className="w-full bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl py-2 pl-10 pr-4 text-xs font-bold outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-scarlet transition-colors"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-hidden">
+                    <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)] mb-4 px-2">Recent History</p>
+                    <div className="h-[calc(100vh-380px)] overflow-y-auto pr-1 space-y-2 custom-scrollbar">
+                        {filteredConversations.map(({ conversation, preview, matchType }) => (
+                            <div key={conversation.id} className={`rounded-xl border transition-all relative ${conversation.id === activeConversationId ? 'bg-[var(--surface-soft)] border-scarlet/20 shadow-md' : 'bg-transparent border-transparent hover:bg-[var(--surface-soft)]'}`}>
+                                <div className="flex items-start gap-3 px-3 py-3 group">
+                                    <button onClick={() => handleSelectConversation(conversation.id)} className="min-w-0 flex-1 text-left">
+                                        {editingId === conversation.id ? (
+                                            <input autoFocus className="w-full bg-transparent border-b border-scarlet outline-none text-sm font-semibold" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={() => handleUpdateTitle(conversation.id)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle(conversation.id)} />
+                                        ) : (
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">{conversation.title}</p>
+                                                <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">{preview}</p>
+                                            </div>
+                                        )}
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                                    </button>
+                                    {menuOpenId === conversation.id && (
+                                        <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-36 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1">
+                                            <button onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }} className="w-full text-left px-4 py-2 text-xs font-black hover:bg-[var(--surface-soft)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>RENAME</button>
+                                            <button onClick={() => handleDeleteConversation(conversation.id)} className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-red-50 flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>DELETE</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+              </>
+          )}
+        </div>
+        <div className="mt-auto pt-4 border-t border-[var(--card-border)] w-full flex justify-center">
+            {userEmail ? <LogoutButton /> : <Link href="/login" className="text-scarlet font-bold p-3 text-xs uppercase tracking-widest">Login</Link>}
+        </div>
+      </aside>
+
+      <main className="flex-1 flex flex-col relative z-10">
+        <header className="flex items-center justify-between px-6 py-4 bg-[var(--card-bg)] border-b border-[var(--card-border)] shadow-md sticky top-0 z-40">
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-[var(--surface-soft)] rounded-lg text-[var(--text-muted)] hidden md:block">{isSidebarOpen ? '❮' : '❯'}</button>
+          <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-[var(--text-primary)] text-xs sm:text-sm uppercase">{activeConversation?.title || "New Session"}</h1>
+          <div className="flex justify-end">
+            <Link href={profileHref} className="flex items-center gap-3 group">
+              <div className="text-right hidden sm:block uppercase">
+                <p className="text-[11px] font-black group-hover:text-scarlet transition-colors">{userName}</p>
+                <p className="text-[9px] text-[var(--text-muted)] font-bold mt-1">{userMajor}</p>
+              </div>
+              <div className="w-9 h-9 rounded-full bg-[var(--surface-soft)] border border-[var(--card-border)] group-hover:border-scarlet flex items-center justify-center overflow-hidden transition-colors">
+                <Image src="/websiteicon.png" alt="Profile" width={20} height={20} className="opacity-30 grayscale group-hover:grayscale-0 transition-all" />
+              </div>
+            </Link>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar bg-[var(--app-bg)]">
+          {activeConversation?.messages.map((msg, i) => {
+            // DYNAMIC SIZING LOGIC
+            const isMultiResponse = msg.role === 'assistant' && msg.comparisonResponses && msg.comparisonResponses.length > 1;
+            const hasSingleResponse = msg.role === 'assistant' && msg.comparisonResponses && msg.comparisonResponses.length === 1;
+            
+            return (
+              <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`flex items-start gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  
+                  {msg.role === 'assistant' && (
+                    <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
+                      <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
+                    </div>
+                  )}
+                  
+                  {/* BUBBLE SIZING AND GRID SIZING */}
+                  <div className={`${isMultiResponse ? 'w-full' : 'w-fit max-w-[85%]'}`}>
+                    
+                    {isMultiResponse ? (
+                      // 2 or 3 models selected (Grid Layout)
+                      <div className={`grid gap-4 ${msg.comparisonResponses!.length === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
+                        {msg.comparisonResponses!.map((res, idx) => (
+                          <div key={idx} className="bg-[var(--card-bg)] border-2 border-[var(--card-border)] rounded-2xl p-5 shadow-lg flex flex-col h-full border-t-scarlet">
+                             <div className="flex justify-between items-center mb-4 pb-2 border-b border-[var(--card-border)]">
+                                <span className="text-[10px] font-black text-scarlet uppercase tracking-widest">{res.modelLabel}</span>
+                                <span className="text-[9px] text-[var(--text-muted)] font-bold">{res.durationMs}ms</span>
+                             </div>
+                             <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap flex-1">{res.content}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : hasSingleResponse ? (
+                      // Exactly 1 model selected from the array
+                      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl rounded-tl-none p-4 shadow-md w-fit">
+                        <div className="text-[10px] font-black text-scarlet uppercase tracking-widest mb-2 border-b border-[var(--card-border)] pb-1 w-fit">
+                            {msg.comparisonResponses![0].modelLabel} <span className="text-[8px] text-[var(--text-muted)]">({msg.comparisonResponses![0].durationMs}ms)</span>
+                        </div>
+                        <div className="text-sm font-medium whitespace-pre-wrap">{msg.comparisonResponses![0].content}</div>
+                      </div>
+                    ) : (
+                      // Standard fallback/user messages
+                      <div className={`p-4 rounded-2xl font-medium whitespace-pre-wrap shadow-md w-fit ${msg.role === 'user' ? 'bg-scarlet text-white border-none rounded-tr-none' : 'bg-[var(--card-bg)] border border-[var(--card-border)] rounded-tl-none'}`}>
+                        {msg.content}
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          
+          {isGenerating && (
+             <div className="flex items-start gap-3 w-fit">
+                <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] animate-pulse">
+                  <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
+                </div>
+                <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl rounded-tl-none p-4 shadow-md w-fit">
+                  <span className="text-[10px] font-black text-scarlet uppercase tracking-[0.2em] animate-pulse">
+                    Generating ({selectedModelIds.length} models) ...
+                  </span>
+                </div>
+             </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* COMPOSER FOOTER */}
+        <div className="p-6 bg-[var(--app-bg)] border-t border-[var(--card-border)]">
+          <div className="max-w-4xl mx-auto relative">
+            
+            {/* MULTI-LLM SELECTION POPUP */}
+            {isModelMenuOpen && (
+              <div ref={modelMenuRef} className="absolute bottom-full left-0 mb-4 w-64 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-2xl p-4 z-[100] animate-in slide-in-from-bottom-2">
+                <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-widest mb-3 px-1">Select Backends</p>
+                <div className="space-y-1">
+                  {CHAT_MODEL_OPTIONS.map(model => (
+                    <button key={model.id} onClick={() => toggleModelSelection(model.id)} className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${selectedModelIds.includes(model.id) ? 'bg-scarlet/5 text-scarlet' : 'hover:bg-[var(--surface-soft)] text-[var(--text-secondary)]'}`}>
+                      <span className="text-xs font-bold">{model.label}</span>
+                      {selectedModelIds.includes(model.id) && <div className="w-2 h-2 bg-scarlet rounded-full shadow-md" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col bg-[var(--input-bg)] border-2 border-[var(--input-border)] rounded-2xl focus-within:border-scarlet transition-all shadow-xl">
+              
+              {/* CURRENTLY SELECTED MODELS DISPLAY */}
+              <div className="px-5 pt-3 pb-1 border-b border-[var(--card-border)] bg-[var(--surface-soft)] rounded-t-2xl flex items-center gap-2">
+                <span className="text-[9px] font-black text-[var(--text-muted)] uppercase tracking-widest">Using:</span>
+                <span className="text-[10px] font-bold text-scarlet">{selectedModelLabels}</span>
+              </div>
+
+              <textarea
+                ref={composerRef}
+                placeholder={`Hi ${userFirstName}, ask Scarlet AI anything...`}
+                className="w-full min-h-[64px] p-5 bg-transparent outline-none font-medium leading-6 text-sm"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleComposerKeyDown}
+                maxLength={2000}
+              />
+              <div className="flex items-center justify-between px-4 pb-3 pt-1 border-t border-[var(--input-border)]">
+                <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-soft)] hover:bg-scarlet/10 rounded-lg transition-all border border-[var(--card-border)] shadow-sm">
+                   <div className="flex -space-x-2">
+                      {selectedModelIds.slice(0, 3).map(id => (
+                        <div key={id} className="w-4 h-4 rounded-full bg-scarlet border border-white flex items-center justify-center text-[8px] text-white font-bold">{id[0].toUpperCase()}</div>
+                      ))}
+                   </div>
+                   <span className="text-[10px] font-black uppercase text-scarlet tracking-tighter">
+                      {selectedModelIds.length > 1 ? `Compare (${selectedModelIds.length})` : getChatModelOption(selectedModelIds[0]).label}
+                   </span>
+                </button>
+                <button onClick={handleSendMessage} disabled={isGenerating || !input.trim()} className="bg-scarlet text-white px-6 h-9 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-[#990026] shadow-lg active:scale-95 disabled:opacity-50 transition-all">
+                  {isGenerating ? 'Wait' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+
+/*
+
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import LogoutButton from '@/components/LogoutButton';
+import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
+import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
+
+type Message = {
+  role: 'user' | 'assistant';
+  content: string;
+  durationMs?: number;
+  modelId?: string;
+  modelLabel?: string;
+  modelDescription?: string;
 };
 
 type Conversation = {
@@ -392,7 +985,9 @@ export default function ChatHub() {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
       
-      {/* SIDEBAR */}
+      {/* SIDEBAR */ //}
+      
+/*      
       <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] shadow-[6px_0_24px_rgba(15,23,42,0.05)] flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
         <div className={isSidebarOpen ? "w-72" : "w-12 flex flex-col items-center"}>
           <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
@@ -412,8 +1007,9 @@ export default function ChatHub() {
                 >
                     + New Chat
                 </button>
-
+*/
                 {/* SEARCH MECHANISM */}
+                /*
                 <div className="relative mb-6">
                    <div className={`flex items-center transition-all duration-300 bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 ${isSearchExpanded ? 'w-full shadow-sm ring-1 ring-[#cc0033]/20' : 'w-10'} shadow-[0_6px_16px_rgba(15,23,42,0.04)]`}>
                       <button onClick={() => setIsSearchExpanded(!isSearchExpanded)} className="p-1 text-[var(--text-muted)] hover:text-[#cc0033]">
@@ -493,8 +1089,8 @@ export default function ChatHub() {
                                     >
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                                     </button>
-
-                                    {/* Professional Menu Dropdown */}
+*/
+                                    {/* Professional Menu Dropdown */} /*
                                     {menuOpenId === conversation.id && (
                                         <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-36 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
                                             <button 
@@ -542,8 +1138,8 @@ export default function ChatHub() {
           >
             New Chat
           </button>
-
-          {/* CENTERED TITLE - Respecting case sensitivity */}
+*/
+          {/* CENTERED TITLE - Respecting case sensitivity */}/*
           <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-[var(--text-primary)] text-xs sm:text-sm text-center">
             {activeConversation?.title || "New Session"}
           </h1>
@@ -551,7 +1147,8 @@ export default function ChatHub() {
           <div className="flex justify-end">
             <Link href={profileHref} className="flex items-center gap-3 group">
               <div className="text-right hidden sm:block">
-                {/* FORCED ALL CAPS USERNAME */}
+              */  {/* FORCED ALL CAPS USERNAME */}
+              /*
                 <p className="text-[11px] font-black text-[var(--text-primary)] leading-none group-hover:text-scarlet transition-colors uppercase">
                   {userName}
                 </p>
@@ -616,8 +1213,8 @@ export default function ChatHub() {
           {error && <div className="max-w-xl rounded-2xl border border-[var(--message-error-border)] bg-[var(--message-error-bg)] px-4 py-3 text-sm font-semibold text-[var(--message-error-text)]">{error}</div>}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* ACTION BAR FOOTER */}
+*/
+        {/* ACTION BAR FOOTER */} /*
         <div className="p-6 bg-[var(--app-bg)] border-t border-[var(--card-border)]">
           <div className="max-w-4xl mx-auto">
             <div className="flex flex-col bg-[var(--input-bg)] border-2 border-[var(--input-border)] rounded-2xl focus-within:border-scarlet transition-all shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
@@ -680,3 +1277,4 @@ export default function ChatHub() {
     </div>
   );
 }
+*/

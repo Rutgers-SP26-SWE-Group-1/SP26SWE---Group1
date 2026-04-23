@@ -10,18 +10,18 @@ export type ChatModelOption = {
 export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
   // --- UNIVERSAL MODELS (Cloud - Works for everyone) ---
   {
-    id: 'gemini-2.5-flash',
+    id: 'gemini-2.5-flash', // Updated ID to match the label
     label: 'Gemini 2.5 Flash',
-    description: 'Universal (Cloud)',
-    details: 'Fastest cloud model. Works for all online users.',
     provider: 'google',
+    description: 'Universal (Cloud)',
+    details: 'Runs via API. Fastest cloud model. Works for all online users.'
   },
   {
-    id: 'llama-3-groq',
+    id: 'llama-3.1',
     label: 'Llama 3.1',
-    description: 'Universal (Cloud)',
-    details: 'High-speed Llama hosted on Groq. Works for all users.',
     provider: 'groq',
+    description: 'Universal (Cloud)',
+    details: 'Runs via API. High-speed Llama hosted on Groq. Works for all users.'
   },
   
  /* { id: 'claude-3-sonnet', 
@@ -39,49 +39,49 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
 
   // --- LOCAL MODELS (Requires Ollama installation) ---
   {
-    id: 'mistral',
-    label: 'Mistral',
-    description: 'Local (Ollama)',
-    details: 'Requires "mistral" model installed on your MacBook. Thinking takes time.',
-    ollamaModel: 'mistral:latest',
+    id: 'local-gemma',
+    label: 'Gemma (Local)',
     provider: 'ollama',
+    ollamaModel: 'gemma:latest', 
+    description: 'Google open weights',
+    details: 'Running locally'
   },
   {
-    id: 'llama3.2',
+    id: 'local-llama3.2',
     label: 'Llama 3.2',
-    description: 'Local (Ollama)',
-    details: 'Requires "llama3.2" installed locally. Slow thinker.',
-    ollamaModel: 'llama3.2:latest',
     provider: 'ollama',
+    ollamaModel: 'llama3.2:latest', 
+    description: 'Meta lightweight model',
+    details: 'Fast local performance'
   },
   {
-    id: 'deepseek',
+    id: 'local-deepseek',
     label: 'DeepSeek R1',
-    description: 'Local (Ollama)',
-    details: 'Best for complex logic. Requires local install.',
-    ollamaModel: 'deepseek-r1:8b',
     provider: 'ollama',
+    ollamaModel: 'deepseek-r1:8b', 
+    description: 'DeepSeek reasoning model',
+    details: 'Great for logic tasks'
   },
   {
-    id: 'qwen-coder',
+    id: 'local-mistral',
+    label: 'Mistral',
+    provider: 'ollama',
+    ollamaModel: 'mistral:latest', 
+    description: 'Mistral AI foundation model',
+    details: 'Running locally'
+  },
+  {
+    id: 'local-qwen',
     label: 'Qwen Coder',
-    description: 'Local (Ollama)',
-    details: 'Programming assistant. Requires local install.',
-    ollamaModel: 'qwen2.5-coder:7b',
     provider: 'ollama',
-  },
-  {
-    id: 'gemma',
-    label: 'Gemma 3',
-    description: 'Local (Ollama)',
-    details: 'Google Open Model. Requires local install.',
-    ollamaModel: 'gemma3:latest',
-    provider: 'ollama',
-  },
+    ollamaModel: 'qwen2.5-coder:7b', 
+    description: 'Alibaba coding model',
+    details: 'Specialized for programming'
+  }
 ];
 
 export const DEFAULT_CHAT_MODEL = CHAT_MODEL_OPTIONS[0];
 
-export function getChatModelOption(modelId?: string | null): ChatModelOption {
-  return CHAT_MODEL_OPTIONS.find((model) => model.id === modelId) ?? DEFAULT_CHAT_MODEL;
+export function getChatModelOption(id: string) {
+  return CHAT_MODEL_OPTIONS.find(model => model.id === id) || DEFAULT_CHAT_MODEL;
 }
