@@ -88,7 +88,7 @@ When('I click the magnifying glass icon', async function () {
 });
 
 When('I type {string} into the search bar', async function (query) {
-  await this.page.type('input[placeholder="Search chats..."]', query);
+  await this.page.type('input[placeholder="Search history..."]', query);
 });
 
 Then('I should see {string} in the history list', async function (expectedTitle) {
