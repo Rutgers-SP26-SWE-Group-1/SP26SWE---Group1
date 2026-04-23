@@ -14,6 +14,10 @@ type Message = {
   modelId?: string;
   modelLabel?: string;
   modelDescription?: string;
+  comparisonContent?: string;
+  comparisonModelId?: string;
+  comparisonModelLabel?: string;
+  comparisonDurationMs?: number;
 };
 
 type Conversation = {
@@ -81,6 +85,8 @@ export default function ChatHub() {
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [secondModelId, setSecondModelId] = useState<string>(CHAT_MODEL_OPTIONS[1]?.id ?? DEFAULT_CHAT_MODEL.id);
   
   // UI STATES
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -336,44 +342,78 @@ export default function ChatHub() {
     setError(null);
     setIsGenerating(true);
 
+    const cleanMessages = updatedConversation.messages.map((m) => ({ role: m.role, content: m.content }));
+
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: trimmedInput,
-          conversationId: activeConversation.id,
-          messages: updatedConversation.messages,
-          modelId: selectedModelId,
-          userName,
-        }),
-      });
+      if (isCompareMode) {
+        const [primaryRes, secondaryRes] = await Promise.all([
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: trimmedInput, conversationId: activeConversation.id, messages: cleanMessages, modelId: selectedModelId, userName }),
+          }),
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: trimmedInput, conversationId: activeConversation.id, messages: cleanMessages, modelId: secondModelId, userName }),
+          }),
+        ]);
 
-      const data = await response.json();
-      if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+        const [primaryData, secondaryData] = await Promise.all([primaryRes.json(), secondaryRes.json()]);
 
-      const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.content,
-        durationMs: data.durationMs,
-        modelId: data.modelId ?? assistantModel.id,
-        modelLabel: data.modelLabel ?? assistantModel.label,
-        modelDescription: data.modelDescription ?? assistantModel.description,
-      };
+        if (!primaryRes.ok || !primaryData.content) throw new Error(primaryData.error || 'Primary model failed.');
+        if (!secondaryRes.ok || !secondaryData.content) throw new Error(secondaryData.error || 'Secondary model failed.');
 
-      setConversations((current) =>
-        current.map((conversation) => {
-          if (conversation.id !== activeConversation.id) return conversation;
-          return {
-            ...conversation,
-            id: data.conversationId || conversation.id,
-            updatedAt: new Date().toISOString(),
-            messages: [...updatedConversation.messages, assistantMessage],
-          };
-        }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      );
-      if (data.conversationId) setActiveConversationId(data.conversationId);
+        const primaryModel = getChatModelOption(primaryData.modelId ?? selectedModelId);
+        const secondaryModel = getChatModelOption(secondaryData.modelId ?? secondModelId);
+
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content: primaryData.content,
+          durationMs: primaryData.durationMs,
+          modelId: primaryModel.id,
+          modelLabel: primaryModel.label,
+          modelDescription: primaryModel.description,
+          comparisonContent: secondaryData.content,
+          comparisonModelId: secondaryModel.id,
+          comparisonModelLabel: secondaryModel.label,
+          comparisonDurationMs: secondaryData.durationMs,
+        };
+
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== activeConversation.id) return conversation;
+            return { ...conversation, updatedAt: new Date().toISOString(), messages: [...updatedConversation.messages, assistantMessage] };
+          }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        );
+      } else {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: trimmedInput, conversationId: activeConversation.id, messages: cleanMessages, modelId: selectedModelId, userName }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+
+        const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content: data.content,
+          durationMs: data.durationMs,
+          modelId: data.modelId ?? assistantModel.id,
+          modelLabel: data.modelLabel ?? assistantModel.label,
+          modelDescription: data.modelDescription ?? assistantModel.description,
+        };
+
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== activeConversation.id) return conversation;
+            return { ...conversation, id: data.conversationId || conversation.id, updatedAt: new Date().toISOString(), messages: [...updatedConversation.messages, assistantMessage] };
+          }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        );
+        if (data.conversationId) setActiveConversationId(data.conversationId);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to send your message.');
     } finally {
@@ -578,39 +618,101 @@ export default function ChatHub() {
           )}
 
           {activeConversation?.messages.map((msg, i) => (
-            <div key={i} className={`flex items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-              {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
-                  <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
+            <div key={i}>
+              {msg.role === 'user' ? (
+                <div className="flex items-start gap-3 flex-row-reverse">
+                  <div className="max-w-[85%] sm:max-w-[75%] items-end">
+                    <div className="p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none">
+                      {msg.content}
+                    </div>
+                  </div>
+                </div>
+              ) : isCompareMode && msg.comparisonContent ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <div className="w-6 h-6 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
+                        <Image src="/overlayicon.png" alt="AI" width={13} height={13} />
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-scarlet">{msg.modelLabel}</span>
+                      {msg.durationMs && <span className="text-[9px] text-[var(--text-muted)] font-bold ml-auto">{msg.durationMs}ms</span>}
+                    </div>
+                    <div className="p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none">
+                      {msg.content}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <div className="w-6 h-6 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
+                        <Image src="/overlayicon.png" alt="AI" width={13} height={13} />
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-scarlet">{msg.comparisonModelLabel}</span>
+                      {msg.comparisonDurationMs && <span className="text-[9px] text-[var(--text-muted)] font-bold ml-auto">{msg.comparisonDurationMs}ms</span>}
+                    </div>
+                    <div className="p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none">
+                      {msg.comparisonContent}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 flex-row">
+                  <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
+                    <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
+                  </div>
+                  <div className="max-w-[85%] sm:max-w-[75%] items-start">
+                    <div className="p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none">
+                      {msg.content}
+                    </div>
+                  </div>
                 </div>
               )}
-              <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
-                  {msg.content}
-                </div>
-              </div>
             </div>
           ))}
 
           {isGenerating && (
-            <div className="flex items-start gap-3">
-              <div className="relative w-9 h-9 flex-shrink-0">
-                <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
-                <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)]">
-                  <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
+            isCompareMode ? (
+              <div className="grid grid-cols-2 gap-4">
+                {[selectedModelId, secondModelId].map((modelId) => (
+                  <div key={modelId} className="flex items-start gap-3">
+                    <div className="relative w-9 h-9 flex-shrink-0">
+                      <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
+                      <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)]">
+                        <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
+                      </div>
+                    </div>
+                    <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[140px]">
+                      <div className="flex gap-1.5 items-center">
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
+                      </div>
+                      <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
+                        {`Thinking with ${getChatModelOption(modelId).label}...`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-start gap-3">
+                <div className="relative w-9 h-9 flex-shrink-0">
+                  <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
+                  <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)]">
+                    <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
+                  </div>
+                </div>
+                <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[200px]">
+                  <div className="flex gap-1.5 items-center">
+                    <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                  <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
+                    {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
+                  </span>
                 </div>
               </div>
-              <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[200px]">
-                <div className="flex gap-1.5 items-center">
-                  <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
-                  <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
-                  <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
-                </div>
-                <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
-                  {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
-                </span>
-              </div>
-            </div>
+            )
           )}
 
           {error && <div className="max-w-xl rounded-2xl border border-[var(--message-error-border)] bg-[var(--message-error-bg)] px-4 py-3 text-sm font-semibold text-[var(--message-error-text)]">{error}</div>}
@@ -639,7 +741,7 @@ export default function ChatHub() {
                    </button>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                    <div className="flex items-center gap-2">
                       <select
                           value={selectedModelId}
@@ -652,8 +754,32 @@ export default function ChatHub() {
                               </option>
                           ))}
                       </select>
+                      {isCompareMode && (
+                        <>
+                          <span className="text-[9px] font-black text-[var(--text-muted)] uppercase tracking-widest">vs</span>
+                          <select
+                              value={secondModelId}
+                              onChange={(e) => setSecondModelId(e.target.value)}
+                              className="text-[10px] font-black text-[var(--text-secondary)] hover:text-scarlet bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
+                          >
+                              {CHAT_MODEL_OPTIONS.map((model) => (
+                                  <option key={model.id} value={model.id}>
+                                      {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
+                                  </option>
+                              ))}
+                          </select>
+                        </>
+                      )}
                    </div>
-                   
+
+                   <button
+                      type="button"
+                      onClick={() => setIsCompareMode(!isCompareMode)}
+                      className={`text-[9px] font-black uppercase tracking-widest px-3 h-9 rounded-xl border transition-all ${isCompareMode ? 'bg-scarlet/10 border-scarlet text-scarlet' : 'border-[var(--card-border)] text-[var(--text-muted)] hover:border-scarlet hover:text-scarlet'}`}
+                  >
+                      {isCompareMode ? '⊞ On' : '⊞ Compare'}
+                  </button>
+
                    <button
                       type="submit"
                       onClick={handleSendMessage}
@@ -667,12 +793,20 @@ export default function ChatHub() {
             </div>
             
             <div className="mt-4 flex flex-col items-center gap-1">
-               <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
-                 {getChatModelOption(selectedModelId).description}
-               </p>
-               <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
-                 {getChatModelOption(selectedModelId).details}
-               </p>
+              {isCompareMode ? (
+                <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
+                  {getChatModelOption(selectedModelId).label} <span className="text-[var(--text-muted)] normal-case font-bold">vs</span> {getChatModelOption(secondModelId).label}
+                </p>
+              ) : (
+                <>
+                  <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
+                    {getChatModelOption(selectedModelId).description}
+                  </p>
+                  <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
+                    {getChatModelOption(selectedModelId).details}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
