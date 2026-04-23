@@ -76,8 +76,7 @@ Answering rules for transit questions:
  * PRODUCER: Google Gemini (Universal Cloud)
  */
 async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  // Keeping your specific working model string
-  const modelName = "gemini-2.5-flash"; 
+  const modelName = 'gemini-2.5-flash';
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
@@ -114,7 +113,7 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
     },
     body: JSON.stringify({
       model: 'llama-3.1-8b-instant',
-      messages: messages,
+      messages,
     }),
   });
 
@@ -127,11 +126,54 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
 }
 
 /**
+ * PRODUCER: Anthropic Claude (Universal Cloud)
+ */
+async function requestClaude(messages: ChatMessage[], apiKey: string) {
+  const systemMessages = messages.filter((m) => m.role === 'system');
+  const nonSystemMessages = messages.filter((m) => m.role !== 'system');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 1000,
+      system: systemMessages.map((m) => m.content).join('\n\n'),
+      messages: nonSystemMessages.map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+
+    if (response.status === 400 && errorText.includes('credit balance is too low')) {
+      throw new Error('Claude is configured, but the Anthropic account does not have enough API credits right now.');
+    }
+
+    if (response.status === 401) {
+      throw new Error('Claude API key is invalid or unauthorized.');
+    }
+
+    throw new Error(`Claude API failed with status ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text ?? 'No response from Claude.';
+}
+
+/**
  * PRODUCER: Local Ollama (Local Development)
  */
 async function requestOllama(messages: ChatMessage[], model: string) {
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-  
+
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
       method: 'POST',
@@ -149,8 +191,8 @@ async function requestOllama(messages: ChatMessage[], model: string) {
 
     const data = await response.json();
     return data.message.content;
-  } catch (err) {
-    throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
+  } catch {
+    throw new Error('Ollama is unavailable. Make sure "ollama serve" is running.');
   }
 }
 
@@ -168,8 +210,7 @@ export async function POST(request: Request) {
 
     const selectedModel = getChatModelOption(body?.modelId);
     const messages = sanitizeMessages(body?.messages ?? []);
-    
-    // Ensure history is sent to the LLM for context memory [cite: 10, 35]
+
     const chatHistory: ChatMessage[] = messages.map((m) => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content,
@@ -181,27 +222,31 @@ export async function POST(request: Request) {
       { role: 'system', content: RUTGERS_SYSTEM_PROMPT },
       ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] : []),
       ...chatHistory,
+      { role: 'user', content: validation.normalizedMessage },
     ];
-
-    // Append the current message
-    promptMessages.push({ role: 'user', content: validation.normalizedMessage });
 
     let content = '';
     const startTime = Date.now();
 
-    // ROUTING LOGIC
     if (selectedModel.provider === 'google') {
       const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      if (!apiKey) throw new Error("Google API Key missing in environment.");
+      if (!apiKey) {
+        throw new Error('Google API Key missing in environment.');
+      }
       content = await requestGemini(promptMessages, apiKey);
-    } 
-    else if (selectedModel.provider === 'groq') {
+    } else if (selectedModel.provider === 'groq') {
       const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) throw new Error("Groq API Key missing in environment.");
+      if (!apiKey) {
+        throw new Error('Groq API Key missing in environment.');
+      }
       content = await requestGroq(promptMessages, apiKey);
-    } 
-    else {
-      // Local Ollama Models [cite: 13, 14]
+    } else if (selectedModel.provider === 'anthropic') {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error('Anthropic API Key missing in environment.');
+      }
+      content = await requestClaude(promptMessages, apiKey);
+    } else {
       content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
     }
 
@@ -216,7 +261,6 @@ export async function POST(request: Request) {
       modelDescription: selectedModel.details,
       timestamp: new Date().toISOString(),
     });
-
   } catch (error: any) {
     console.error('POST /api/chat failed:', error);
     return NextResponse.json(

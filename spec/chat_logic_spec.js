@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 const {
   MAX_MESSAGE_LENGTH,
   buildFallbackReply,
