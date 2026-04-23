@@ -75,8 +75,11 @@ Answering rules for transit questions:
 /**
  * PRODUCER: Google Gemini (Universal Cloud)
  */
+/**
+ * PRODUCER: Google Gemini (Universal Cloud)
+ */
 async function requestGemini(messages: ChatMessage[], apiKey: string) {
-  const modelName = "gemini-2.5-flash"; 
+  const modelName = "gemini-2.5-flash"; // Reverted back to match your deployed site
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
@@ -92,7 +95,14 @@ async function requestGemini(messages: ChatMessage[], apiKey: string) {
     }
   );
 
-  if (!response.ok) throw new Error(`Gemini Error`);
+  if (!response.ok) {
+    // FIX: Actually read the error Google is sending back
+    const errorData = await response.json().catch(() => null);
+    const errorMessage = errorData?.error?.message || `Status: ${response.status}`;
+    console.error("Detailed Gemini API Error:", errorData);
+    throw new Error(`Gemini Error: ${errorMessage}`);
+  }
+
   const data = await response.json();
   return data.candidates[0].content.parts[0].text;
 }
