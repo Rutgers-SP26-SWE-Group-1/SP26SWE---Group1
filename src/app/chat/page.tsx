@@ -12,6 +12,12 @@ import {
   confirmModelSelection,
   closeModelSelection,
 } from '@/lib/chat-model-selector';
+import {
+  closeComparisonView,
+  createComparisonViewState,
+  getComparisonSections,
+  getLatestComparisonSections,
+} from '@/lib/chat-ui-logic';
 import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
@@ -43,6 +49,28 @@ type ModelSelectorState = {
   committedModelIds: string[];
   draftModelIds: string[];
   maxSelections: number;
+};
+
+type ChatResponsePayload = {
+  content?: string;
+  durationMs?: number;
+  modelId?: string;
+  modelLabel?: string;
+  modelDescription?: string;
+};
+
+type ComparisonSection = {
+  id: string;
+  modelId: string;
+  modelLabel: string;
+  modelDescription?: string;
+  content: string;
+  durationMs?: number;
+};
+
+type ComparisonViewState = {
+  isOpen: boolean;
+  sections: ComparisonSection[];
 };
 
 const STORAGE_KEY = 'scarlet-ai-conversations';
@@ -100,6 +128,9 @@ export default function ChatHub() {
   const [modelSelectorState, setModelSelectorState] = useState<ModelSelectorState>(() =>
     createModelSelectionState([DEFAULT_SELECTOR_MODEL_ID], DEFAULT_SELECTOR_MODEL_ID, 3)
   );
+  const [comparisonViewState, setComparisonViewState] = useState<ComparisonViewState>(() =>
+    createComparisonViewState()
+  );
   
   // UI STATES
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -118,9 +149,15 @@ export default function ChatHub() {
     getChatModelOption(modelId)
   );
   const draftSelectionCount = modelSelectorState.draftModelIds.length;
+  const comparisonSections: ComparisonSection[] = getComparisonSections(comparisonViewState);
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+  const activeConversationComparisonSections: ComparisonSection[] = getLatestComparisonSections(
+    activeConversation?.messages ?? []
+  );
+  const visibleComparisonSections =
+    comparisonSections.length > 1 ? comparisonSections : activeConversationComparisonSections;
   const profileHref = userEmail ? '/profile' : '/login';
 
   // SEARCH FILTER LOGIC
@@ -367,23 +404,35 @@ export default function ChatHub() {
           message: trimmedInput,
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
-          modelId: selectedModelId,
+          modelIds: modelSelectorState.committedModelIds,
           userName,
         }),
       });
 
       const data = await response.json();
-      if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+      const modelResponses: ChatResponsePayload[] = Array.isArray(data.responses) && data.responses.length > 0
+        ? data.responses
+        : data.content
+          ? [data]
+          : [];
 
-      const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.content,
-        durationMs: data.durationMs,
-        modelId: data.modelId ?? assistantModel.id,
-        modelLabel: data.modelLabel ?? assistantModel.label,
-        modelDescription: data.modelDescription ?? assistantModel.description,
-      };
+      if (!response.ok || modelResponses.length === 0) {
+        throw new Error(data.error || 'Scarlet AI could not generate a response.');
+      }
+
+      const assistantMessages: Message[] = modelResponses.map((modelResponse) => {
+        const assistantModel = getChatModelOption(modelResponse.modelId ?? selectedModelId);
+
+        return {
+          role: 'assistant',
+          content: modelResponse.content ?? '',
+          durationMs: modelResponse.durationMs,
+          modelId: modelResponse.modelId ?? assistantModel.id,
+          modelLabel: modelResponse.modelLabel ?? assistantModel.label,
+          modelDescription: modelResponse.modelDescription ?? assistantModel.description,
+        };
+      });
+      setComparisonViewState(createComparisonViewState(assistantMessages));
 
       setConversations((current) =>
         current.map((conversation) => {
@@ -392,7 +441,7 @@ export default function ChatHub() {
             ...conversation,
             id: data.conversationId || conversation.id,
             updatedAt: new Date().toISOString(),
-            messages: [...updatedConversation.messages, assistantMessage],
+            messages: [...updatedConversation.messages, ...assistantMessages],
           };
         }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       );
@@ -436,8 +485,90 @@ export default function ChatHub() {
     );
   };
 
+  const handleOpenComparisonView = () => {
+    setComparisonViewState((currentState) => ({
+      ...currentState,
+      isOpen: true,
+      sections: visibleComparisonSections,
+    }));
+  };
+
+  const handleCloseComparisonView = () => {
+    setComparisonViewState((currentState) =>
+      closeComparisonView(currentState)
+    );
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
+      <div
+        data-testid="comparison-view-overlay"
+        className={`fixed inset-0 z-[90] flex items-center justify-center px-3 py-4 backdrop-blur-sm transition-all duration-200 sm:px-6 ${
+          comparisonViewState.isOpen
+            ? 'pointer-events-auto bg-[rgba(15,23,42,0.62)] opacity-100'
+            : 'pointer-events-none bg-transparent opacity-0'
+        }`}
+      >
+        <div
+          data-testid="comparison-view-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="comparison-view-title"
+          className={`flex max-h-[calc(100vh-2rem)] min-h-[72vh] w-full max-w-7xl flex-col overflow-hidden rounded-[32px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[0_36px_110px_rgba(15,23,42,0.42)] transition-all duration-200 ${
+            comparisonViewState.isOpen ? 'translate-y-0 scale-100' : 'translate-y-4 scale-95'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-6 border-b border-[var(--card-border)] bg-[linear-gradient(135deg,var(--surface-soft),var(--card-bg))] px-6 py-6 sm:px-8">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-scarlet">
+                Integrated Comparison
+              </p>
+              <h2 id="comparison-view-title" className="mt-2 text-2xl font-black tracking-tight text-[var(--text-primary)] sm:text-3xl">
+                Compare Model Responses
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-[var(--text-secondary)]">
+                Review the latest model responses side-by-side. Each card keeps the model name attached to the answer it generated.
+              </p>
+            </div>
+            <button
+              data-testid="close-comparison-view"
+              type="button"
+              onClick={handleCloseComparisonView}
+              aria-label="Close comparison view"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--text-muted)] shadow-sm transition-colors hover:text-scarlet"
+            >
+              <span className="text-lg font-black leading-none">X</span>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto bg-[var(--app-bg)] p-5 sm:p-8">
+            <div className="grid min-h-full gap-5 xl:grid-cols-3">
+              {visibleComparisonSections.map((section) => (
+                <section
+                  key={section.id}
+                  data-testid="comparison-response-section"
+                  className="flex min-h-[360px] flex-col overflow-hidden rounded-[26px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[0_18px_40px_rgba(15,23,42,0.10)]"
+                >
+                  <div className="border-b border-[var(--card-border)] bg-[var(--surface-soft)] px-5 py-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-scarlet">
+                      {section.modelLabel}
+                    </p>
+                    {section.modelDescription && (
+                      <p className="mt-2 text-xs font-semibold leading-5 text-[var(--text-muted)]">
+                        {section.modelDescription}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-y-auto whitespace-pre-wrap p-5 text-sm font-medium leading-7 text-[var(--text-primary)]">
+                    {section.content}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div
         className={`fixed inset-0 z-[80] flex items-center justify-center px-4 py-6 transition-all duration-200 ${
           modelSelectorState.isOpen
@@ -737,12 +868,30 @@ export default function ChatHub() {
                 </div>
               )}
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
+                {msg.role === 'assistant' && msg.modelLabel && (
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-scarlet">
+                    {msg.modelLabel}
+                  </p>
+                )}
+                <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
                   {msg.content}
                 </div>
               </div>
             </div>
           ))}
+
+          {visibleComparisonSections.length > 1 && !isGenerating && (
+            <div className="flex justify-center">
+              <button
+                data-testid="open-comparison-view"
+                type="button"
+                onClick={handleOpenComparisonView}
+                className="rounded-xl border border-scarlet/30 bg-[rgba(204,0,51,0.08)] px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-scarlet shadow-[0_10px_24px_rgba(204,0,51,0.10)] transition-all hover:border-scarlet hover:bg-[rgba(204,0,51,0.12)]"
+              >
+                Open in Integrated View
+              </button>
+            </div>
+          )}
 
           {isGenerating && (
             <div className="flex items-start gap-3">
@@ -759,7 +908,7 @@ export default function ChatHub() {
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
-                  {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
+                  {`Thinking with ${selectedModelOptions.map((model) => model.label).join(' + ')}...`}
                 </span>
               </div>
             </div>

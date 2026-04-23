@@ -1,14 +1,26 @@
 import { NextResponse } from 'next/server';
 import {
+  buildMultiModelResponses,
   createConversationId,
+  normalizeSelectedModelIds,
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
-import { getChatModelOption } from '@/lib/chat-models';
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
+};
+
+type ChatModelRequestOption = {
+  ollamaModel: string;
+};
+
+type MultiModelResponse = {
+  content: string;
+  modelId: string;
+  modelLabel: string;
+  modelDescription: string;
 };
 
 const RUTGERS_SYSTEM_PROMPT = `
@@ -95,7 +107,7 @@ async function requestOllama(messages: ChatMessage[], model: string) {
 
     const data = await response.json();
     return data.message.content;
-  } catch (err) {
+  } catch {
     throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
   }
 }
@@ -112,7 +124,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const selectedModel = getChatModelOption(body?.modelId);
+    const selectedModelIds = normalizeSelectedModelIds(body?.modelIds ?? body?.modelId);
     const messages = sanitizeMessages(body?.messages ?? []);
     
     // Ensure history is sent to the LLM for context memory [cite: 10, 35]
@@ -132,27 +144,45 @@ export async function POST(request: Request) {
     // Append the current message
     promptMessages.push({ role: 'user', content: validation.normalizedMessage });
 
-    let content = '';
     const startTime = Date.now();
 
-    content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
+    const responses = await buildMultiModelResponses({
+      modelIds: selectedModelIds,
+      promptMessages,
+      requestModelResponse: async ({
+        option,
+        messages,
+      }: {
+        option: ChatModelRequestOption;
+        messages: ChatMessage[];
+      }) =>
+        requestOllama(messages, option.ollamaModel),
+    });
 
     const conversationId = createConversationId(body?.conversationId);
+    const durationMs = Date.now() - startTime;
+    const primaryResponse = responses[0];
 
     return NextResponse.json({
       conversationId,
-      content: content.trim(),
-      durationMs: Date.now() - startTime,
-      modelId: selectedModel.id,
-      modelLabel: selectedModel.label,
-      modelDescription: selectedModel.details,
+      responses: responses.map((response: MultiModelResponse) => ({
+        ...response,
+        durationMs,
+      })),
+      content: primaryResponse.content,
+      durationMs,
+      modelId: primaryResponse.modelId,
+      modelLabel: primaryResponse.modelLabel,
+      modelDescription: primaryResponse.modelDescription,
       timestamp: new Date().toISOString(),
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('POST /api/chat failed:', error);
+    const message = error instanceof Error ? error.message : 'Unable to process your message.';
+
     return NextResponse.json(
-      { error: error.message || 'Unable to process your message.' },
+      { error: message },
       { status: 503 }
     );
   }

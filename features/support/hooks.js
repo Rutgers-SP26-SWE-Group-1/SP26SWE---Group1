@@ -4,7 +4,11 @@ const puppeteer = require('puppeteer');
 Before(async function ({ pickle }) {
   this.currentScenarioUri = pickle.uri;
 
-  if (pickle.uri.endsWith('individual-feature1.feature')) {
+  if (
+    pickle.uri.endsWith('individual-feature1.feature') ||
+    pickle.uri.endsWith('individual-feature2.feature') ||
+    pickle.uri.endsWith('individual-feature3.feature')
+  ) {
     return;
   }
 

@@ -8,7 +8,16 @@
     "start": "next start",
     "lint": "eslint",
     "test": "npx jasmine",
-    "test:browser": "node tests/browser-smoke-test.js"
+    "test:jasmine:feature1": "jasmine spec/individual-feature1-jasmine-spec.js",
+    "test:jasmine:feature2": "jasmine spec/individual-feature2-jasmine-spec.js",
+    "test:jasmine:feature3": "jasmine spec/individual-feature3-jasmine-spec.js",
+    "test:browser": "node tests/browser-smoke-test.js",
+    "test:puppeteer:feature1": "node tests/individual-feature1-puppeteer-test.js",
+    "test:puppeteer:feature2": "node tests/individual-feature2-puppeteer-test.js",
+    "test:puppeteer:feature3": "node tests/individual-feature3-puppeteer-test.js",
+    "test:cucumber:feature1": "cucumber-js features/individual-feature1.feature",
+    "test:cucumber:feature2": "cucumber-js features/individual-feature2.feature",
+    "test:cucumber:feature3": "cucumber-js features/individual-feature3.feature"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",

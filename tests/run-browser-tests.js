@@ -7,6 +7,8 @@ const TESTS = [
   'ui-smoke-test.js',
   'iteration2-puppeteer-test.js',
   'individual-feature1-puppeteer-test.js',
+  'individual-feature2-puppeteer-test.js',
+  'individual-feature3-puppeteer-test.js',
 ];
 
 for (const test of TESTS) {

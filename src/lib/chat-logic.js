@@ -1,8 +1,54 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { randomUUID } = require('crypto');
 
 // Use 5000 for the logic check if your tests expect it, 
 // otherwise keep 2000 for your specific UI limit.
 const MAX_MESSAGE_LENGTH = 5000; 
+
+const CHAT_MODEL_OPTIONS = [
+  {
+    id: 'mistral',
+    label: 'Mistral',
+    description: 'General / Fast',
+    details: 'Fast local-purpose model for quick responses and everyday prompts.',
+    ollamaModel: 'mistral:latest',
+  },
+  {
+    id: 'llama3.1',
+    label: 'Llama 3.1',
+    description: 'Explanations',
+    details: 'Strong at clear explanations and step-by-step breakdowns.',
+    ollamaModel: 'llama3.1:8b',
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek R1',
+    description: 'Reasoning',
+    details: 'Best fit for deeper reasoning and complex logic questions.',
+    ollamaModel: 'deepseek-r1:8b',
+  },
+  {
+    id: 'qwen-coder',
+    label: 'Qwen Coder',
+    description: 'Coding',
+    details: 'Specialized for programming help, debugging, and code generation.',
+    ollamaModel: 'qwen2.5-coder:7b',
+  },
+  {
+    id: 'gemma',
+    label: 'Gemma 3',
+    description: 'Balanced',
+    details: 'Balanced local model for a mix of speed, quality, and versatility.',
+    ollamaModel: 'gemma3:latest',
+  },
+];
+
+const DEFAULT_MODEL_ID = CHAT_MODEL_OPTIONS[0].id;
+const MAX_SELECTED_MODELS = 3;
+
+function getChatModelOption(modelId) {
+  return CHAT_MODEL_OPTIONS.find((model) => model.id === modelId) ?? CHAT_MODEL_OPTIONS[0];
+}
 
 /**
  * MISSING FUNCTION 1: validateMessage
@@ -110,14 +156,52 @@ function buildFallbackReply(message, options = {}) {
   }
 }
 
+function normalizeSelectedModelIds(modelIds, fallbackModelId = DEFAULT_MODEL_ID) {
+  const validModelIds = new Set(CHAT_MODEL_OPTIONS.map((model) => model.id));
+  const uniqueModelIds = Array.from(new Set((Array.isArray(modelIds) ? modelIds : [modelIds]).filter(Boolean)));
+  const normalizedModelIds = uniqueModelIds
+    .filter((modelId) => validModelIds.has(modelId))
+    .slice(0, MAX_SELECTED_MODELS);
+
+  if (normalizedModelIds.length > 0) {
+    return normalizedModelIds;
+  }
+
+  return [fallbackModelId];
+}
+
+async function buildMultiModelResponses({ modelIds, promptMessages, requestModelResponse }) {
+  const selectedModelIds = normalizeSelectedModelIds(modelIds);
+
+  return Promise.all(
+    selectedModelIds.map(async (modelId) => {
+      const option = getChatModelOption(modelId);
+      const content = await requestModelResponse({ option, messages: promptMessages });
+
+      return {
+        content: String(content || '').trim(),
+        modelId: option.id,
+        modelLabel: option.label,
+        modelDescription: option.details,
+      };
+    })
+  );
+}
+
 // Ensure ALL functions are exported for Jasmine to find them
 module.exports = {
   MAX_MESSAGE_LENGTH,
+  CHAT_MODEL_OPTIONS,
+  DEFAULT_MODEL_ID,
+  MAX_SELECTED_MODELS,
   validateMessage,      // Fixed failures 5, 6, 7, 8
   formatChatPayload,    // Fixed failures 3, 4
   sanitizeInput,        // Fixed failures 1, 2
+  buildMultiModelResponses,
   buildFallbackReply,
   createConversationId,
+  getChatModelOption,
+  normalizeSelectedModelIds,
   sanitizeMessages,
   validateChatRequest,
 };

@@ -85,9 +85,83 @@ function resolveModelSelection(modelId, options, defaultModel) {
   return options.find((model) => model.id === modelId) ?? defaultModel;
 }
 
+function normalizeComparisonSections(responses) {
+  if (!Array.isArray(responses)) {
+    return [];
+  }
+
+  return responses
+    .filter(
+      (response) =>
+        response &&
+        typeof response.content === 'string' &&
+        (response.role === undefined || response.role === 'assistant')
+    )
+    .map((response, index) => ({
+      id: response.modelId || `model-response-${index}`,
+      modelId: response.modelId || `model-response-${index}`,
+      modelLabel: response.modelLabel || 'Unknown Model',
+      content: response.content,
+      modelDescription: response.modelDescription || '',
+      durationMs: response.durationMs,
+    }))
+    .filter((section) => section.content.trim().length > 0);
+}
+
+function createComparisonViewState(initialResponses = []) {
+  return {
+    isOpen: false,
+    sections: normalizeComparisonSections(initialResponses),
+  };
+}
+
+function openComparisonView(state, responses) {
+  return {
+    ...state,
+    isOpen: true,
+    sections: normalizeComparisonSections(responses),
+  };
+}
+
+function closeComparisonView(state) {
+  return {
+    ...state,
+    isOpen: false,
+  };
+}
+
+function getComparisonSections(state) {
+  return Array.isArray(state?.sections) ? state.sections : [];
+}
+
+function getLatestComparisonSections(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const latestResponses = [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+
+    if (!message || message.role !== 'assistant') {
+      break;
+    }
+
+    latestResponses.unshift(message);
+  }
+
+  return normalizeComparisonSections(latestResponses);
+}
+
 module.exports = {
   buildSearchPreview,
+  closeComparisonView,
+  createComparisonViewState,
+  getComparisonSections,
+  getLatestComparisonSections,
   getNextTheme,
+  openComparisonView,
   resolveModelSelection,
   searchConversations,
 };

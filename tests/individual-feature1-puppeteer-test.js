@@ -21,7 +21,8 @@ async function clickButtonByText(page, scopeSelector, text) {
 
 async function getModelCardState(page, modelLabel) {
   return page.evaluate((label) => {
-    const dialog = document.querySelector('[role="dialog"]');
+    const dialog = [...document.querySelectorAll('[role="dialog"]')]
+      .find((candidate) => candidate.closest('.pointer-events-auto'));
     if (!dialog) return null;
 
     const button = [...dialog.querySelectorAll('button')].find((candidate) =>
@@ -36,6 +37,24 @@ async function getModelCardState(page, modelLabel) {
       text: button.textContent || '',
     };
   }, modelLabel);
+}
+
+async function clickVisibleButtonByText(page, text) {
+  const clicked = await page.evaluate((targetText) => {
+    const button = [...document.querySelectorAll('button')].find((candidate) => {
+      const box = candidate.getBoundingClientRect();
+      const visible = box.width > 0 && box.height > 0;
+      return visible && (candidate.textContent || '').includes(targetText);
+    });
+
+    if (!button) return false;
+    button.click();
+    return true;
+  }, text);
+
+  if (!clicked) {
+    throw new Error(`Unable to find visible button containing "${text}".`);
+  }
 }
 
 (async () => {
@@ -66,9 +85,9 @@ async function getModelCardState(page, modelLabel) {
     if (initialCount) pass('Model selector starts with one saved model');
     else fail('Model selector starts with one saved model');
 
-    await clickButtonByText(page, '[role="dialog"]', 'Llama 3.1');
+    await clickVisibleButtonByText(page, 'Llama 3.1');
     await sleep(200);
-    await clickButtonByText(page, '[role="dialog"]', 'DeepSeek R1');
+    await clickVisibleButtonByText(page, 'DeepSeek R1');
     await sleep(200);
 
     const selectionCountReached = await page.evaluate(() => {
@@ -82,7 +101,7 @@ async function getModelCardState(page, modelLabel) {
     if (qwenState?.disabled) pass('Fourth model option becomes disabled at the limit');
     else fail('Fourth model option becomes disabled at the limit', qwenState ? 'button was still enabled' : 'button not found');
 
-    await clickButtonByText(page, '[role="dialog"]', 'Qwen Coder').catch(() => {});
+    await clickVisibleButtonByText(page, 'Qwen Coder').catch(() => {});
     await sleep(200);
 
     const qwenAfterClick = await getModelCardState(page, 'Qwen Coder');
@@ -99,7 +118,7 @@ async function getModelCardState(page, modelLabel) {
       );
     }
 
-    await clickButtonByText(page, '[role="dialog"]', 'Confirm');
+    await clickVisibleButtonByText(page, 'Confirm');
     await page.waitForFunction(() => {
       const overlay = document.querySelector('div.fixed.inset-0');
       return Boolean(overlay && overlay.className.includes('pointer-events-none'));

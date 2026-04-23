@@ -11,6 +11,10 @@ When('the user clicks the {string} button', function (buttonLabel) {
   if (buttonLabel === 'Choose LLM(s)') {
     this.modelSelectionCardOpen = true;
   }
+
+  if (buttonLabel === 'Open in Integrated View' && typeof this.openIntegratedComparisonView === 'function') {
+    this.openIntegratedComparisonView();
+  }
 });
 
 When('the user selects three models', function () {
@@ -42,9 +46,4 @@ Then('the system prevents the selection', function () {
 
 Then('the selected models are saved', function () {
   console.log('Then the selected models are saved');
-});
-
-Given('the user has selected three models', function () {
-  console.log('Given the user has selected three models');
-  this.selectedModels = ['mistral', 'llama3.1', 'deepseek'];
 });
