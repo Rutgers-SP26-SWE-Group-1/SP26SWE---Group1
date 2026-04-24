@@ -4,16 +4,25 @@ import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import LogoutButton from '@/components/LogoutButton';
-import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
+import { CHAT_MODEL_OPTIONS, getChatModelOption } from '@/lib/chat-models';
+import {
+  buildDefaultModelSelection,
+  sanitizeChatMode,
+  sanitizeSelectedModelIds,
+  sanitizeSingleModelId,
+  updateSelectedModelSlot,
+} from '@/lib/chat-selection-logic';
 import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
   role: 'user' | 'assistant';
   content: string;
   durationMs?: number;
+  isError?: boolean;
   modelId?: string;
   modelLabel?: string;
   modelDescription?: string;
+  promptId?: string;
 };
 
 type Conversation = {
@@ -31,7 +40,22 @@ type ConversationSearchResult = {
   rank: number;
 };
 
+type ChatApiResponse = {
+  content: string;
+  durationMs: number;
+  isError?: boolean;
+  modelDescription?: string;
+  modelId?: string;
+  modelLabel?: string;
+};
+
+type ChatMode = 'single' | 'compare';
+
 const STORAGE_KEY = 'scarlet-ai-conversations';
+const CHAT_MODE_STORAGE_KEY = 'scarlet-ai-chat-mode';
+const MODEL_SELECTION_STORAGE_KEY = 'scarlet-ai-model-selection';
+const SINGLE_MODEL_STORAGE_KEY = 'scarlet-ai-single-model';
+const MODEL_SELECTION_LIMIT = 3;
 
 function createUntitledConversation(): Conversation {
   const now = new Date().toISOString();
@@ -80,7 +104,11 @@ export default function ChatHub() {
   const [userMajor, setUserMajor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [chatMode, setChatMode] = useState<ChatMode>('single');
+  const [selectedSingleModelId, setSelectedSingleModelId] = useState<string>(CHAT_MODEL_OPTIONS[0].id);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() =>
+    buildDefaultModelSelection(CHAT_MODEL_OPTIONS, MODEL_SELECTION_LIMIT)
+  );
   
   // UI STATES
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -239,6 +267,36 @@ export default function ChatHub() {
   }, []);
 
   useEffect(() => {
+    const storedChatMode = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY);
+    const storedSingleModelId = window.localStorage.getItem(SINGLE_MODEL_STORAGE_KEY);
+    const storedModelSelection = window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY);
+
+    if (storedChatMode) {
+      setChatMode(sanitizeChatMode(storedChatMode));
+    }
+
+    if (storedSingleModelId) {
+      setSelectedSingleModelId(sanitizeSingleModelId(storedSingleModelId));
+    }
+
+    if (!storedModelSelection) {
+      return;
+    }
+
+    try {
+      setSelectedModelIds(
+        sanitizeSelectedModelIds(
+          JSON.parse(storedModelSelection),
+          CHAT_MODEL_OPTIONS,
+          MODEL_SELECTION_LIMIT
+        )
+      );
+    } catch (storageError) {
+      console.error('Failed to parse saved model selection:', storageError);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!hasLoadedLocalState) return;
     if (conversations.length === 0) {
       window.localStorage.removeItem(STORAGE_KEY);
@@ -246,6 +304,26 @@ export default function ChatHub() {
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations, hasLoadedLocalState]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, chatMode);
+  }, [chatMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      SINGLE_MODEL_STORAGE_KEY,
+      sanitizeSingleModelId(selectedSingleModelId, CHAT_MODEL_OPTIONS)
+    );
+  }, [selectedSingleModelId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      MODEL_SELECTION_STORAGE_KEY,
+      JSON.stringify(
+        sanitizeSelectedModelIds(selectedModelIds, CHAT_MODEL_OPTIONS, MODEL_SELECTION_LIMIT)
+      )
+    );
+  }, [selectedModelIds]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -314,12 +392,32 @@ export default function ChatHub() {
     setMenuOpenId(null);
   };
 
+  const handleModelSelectionChange = (slotIndex: number, nextModelId: string) => {
+    setSelectedModelIds((current) =>
+      updateSelectedModelSlot(
+        current,
+        slotIndex,
+        nextModelId,
+        CHAT_MODEL_OPTIONS,
+        MODEL_SELECTION_LIMIT
+      )
+    );
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
     if (!trimmedInput || !activeConversation || isGenerating) return;
+    const activeModelIds =
+      chatMode === 'compare'
+        ? sanitizeSelectedModelIds(selectedModelIds, CHAT_MODEL_OPTIONS, MODEL_SELECTION_LIMIT)
+        : [sanitizeSingleModelId(selectedSingleModelId, CHAT_MODEL_OPTIONS)];
+    const promptId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `prompt-${Date.now()}`;
 
-    const userMessage: Message = { role: 'user', content: trimmedInput };
+    const userMessage: Message = { role: 'user', content: trimmedInput, promptId };
     const updatedConversation: Conversation = {
       ...activeConversation,
       title: activeConversation.messages.length === 0 ? deriveTitle(trimmedInput) : activeConversation.title,
@@ -344,23 +442,46 @@ export default function ChatHub() {
           message: trimmedInput,
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
-          modelId: selectedModelId,
+          ...(chatMode === 'compare'
+            ? { modelIds: activeModelIds }
+            : { modelId: activeModelIds[0] }),
           userName,
         }),
       });
 
       const data = await response.json();
-      if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+      if (!response.ok) throw new Error(data.error || 'Scarlet AI could not generate a response.');
 
-      const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.content,
-        durationMs: data.durationMs,
-        modelId: data.modelId ?? assistantModel.id,
-        modelLabel: data.modelLabel ?? assistantModel.label,
-        modelDescription: data.modelDescription ?? assistantModel.description,
-      };
+      const rawResponses = Array.isArray(data.responses) && data.responses.length > 0
+        ? (data.responses as ChatApiResponse[])
+        : [{
+            content: data.content,
+            durationMs: data.durationMs,
+            isError: false,
+            modelDescription: data.modelDescription,
+            modelId: data.modelId,
+            modelLabel: data.modelLabel,
+          }];
+
+      const assistantMessages: Message[] = rawResponses
+        .filter((reply) => typeof reply.content === 'string' && reply.content.trim().length > 0)
+        .map((reply, index) => {
+          const assistantModel = getChatModelOption(reply.modelId ?? activeModelIds[index]);
+          return {
+            role: 'assistant',
+            content: reply.content,
+            durationMs: reply.durationMs,
+            isError: reply.isError,
+            modelId: reply.modelId ?? assistantModel.id,
+            modelLabel: reply.modelLabel ?? assistantModel.label,
+            modelDescription: reply.modelDescription ?? assistantModel.details,
+            promptId,
+          };
+        });
+
+      if (assistantMessages.length === 0) {
+        throw new Error('Scarlet AI could not generate a response.');
+      }
 
       setConversations((current) =>
         current.map((conversation) => {
@@ -369,7 +490,7 @@ export default function ChatHub() {
             ...conversation,
             id: data.conversationId || conversation.id,
             updatedAt: new Date().toISOString(),
-            messages: [...updatedConversation.messages, assistantMessage],
+            messages: [...updatedConversation.messages, ...assistantMessages],
           };
         }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       );
@@ -585,6 +706,22 @@ export default function ChatHub() {
                 </div>
               )}
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  {msg.role === 'assistant' && (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${
+                        msg.isError
+                          ? 'bg-[var(--message-error-bg)] text-[var(--message-error-text)] border border-[var(--message-error-border)]'
+                          : 'bg-[var(--surface-soft)] text-[var(--text-secondary)] border border-[var(--card-border)]'
+                      }`}>
+                        {msg.modelLabel || 'Scarlet AI'}
+                      </span>
+                      {typeof msg.durationMs === 'number' && msg.durationMs > 0 && (
+                        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                          {(msg.durationMs / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}>
                   {msg.content}
                 </div>
@@ -607,8 +744,26 @@ export default function ChatHub() {
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
-                  {`Thinking with ${getChatModelOption(selectedModelId).label}...`}
+                  {chatMode === 'compare'
+                    ? 'Thinking with 3 models...'
+                    : `Thinking with ${getChatModelOption(selectedSingleModelId).label}...`}
                 </span>
+                <div className="flex flex-wrap gap-2">
+                  {(chatMode === 'compare'
+                    ? sanitizeSelectedModelIds(
+                        selectedModelIds,
+                        CHAT_MODEL_OPTIONS,
+                        MODEL_SELECTION_LIMIT
+                      )
+                    : [sanitizeSingleModelId(selectedSingleModelId, CHAT_MODEL_OPTIONS)]).map((modelId) => (
+                    <span
+                      key={modelId}
+                      className="rounded-full border border-[var(--card-border)] bg-[var(--card-bg)] px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--text-secondary)]"
+                    >
+                      {getChatModelOption(modelId).label}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -640,20 +795,77 @@ export default function ChatHub() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                   <div className="flex items-center gap-2">
-                      <select
-                          value={selectedModelId}
-                          onChange={(e) => setSelectedModelId(e.target.value)}
-                          className="text-[10px] font-black text-[var(--text-secondary)] hover:text-scarlet bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
-                      >
-                          {CHAT_MODEL_OPTIONS.map((model) => (
+                   <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-2 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] p-1 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => setChatMode('single')}
+                          className={`rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] transition-colors ${
+                            chatMode === 'single'
+                              ? 'bg-[#cc0033] text-white'
+                              : 'text-[var(--text-secondary)] hover:text-scarlet'
+                          }`}
+                        >
+                          1 LLM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setChatMode('compare')}
+                          className={`rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] transition-colors ${
+                            chatMode === 'compare'
+                              ? 'bg-[#cc0033] text-white'
+                              : 'text-[var(--text-secondary)] hover:text-scarlet'
+                          }`}
+                        >
+                          3 LLMs
+                        </button>
+                      </div>
+
+                      {chatMode === 'single' ? (
+                        <label className="flex items-center gap-2 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] px-2 py-1.5 shadow-sm">
+                          <span className="text-[9px] font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                            Model
+                          </span>
+                          <select
+                            value={selectedSingleModelId}
+                            onChange={(e) => setSelectedSingleModelId(e.target.value)}
+                            className="min-w-[170px] bg-transparent text-[10px] font-black text-[var(--text-secondary)] outline-none cursor-pointer"
+                          >
+                            {CHAT_MODEL_OPTIONS.map((model) => (
                               <option key={model.id} value={model.id}>
-                                  {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
+                                {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
                               </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {sanitizeSelectedModelIds(
+                            selectedModelIds,
+                            CHAT_MODEL_OPTIONS,
+                            MODEL_SELECTION_LIMIT
+                          ).map((modelId, index) => (
+                            <label key={`${modelId}-${index}`} className="flex items-center gap-2 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] px-2 py-1.5 shadow-sm">
+                              <span className="text-[9px] font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                                LLM {index + 1}
+                              </span>
+                              <select
+                                value={modelId}
+                                onChange={(e) => handleModelSelectionChange(index, e.target.value)}
+                                className="min-w-[140px] bg-transparent text-[10px] font-black text-[var(--text-secondary)] outline-none cursor-pointer"
+                              >
+                                {CHAT_MODEL_OPTIONS.map((model) => (
+                                  <option key={model.id} value={model.id}>
+                                    {model.label} ({model.provider === 'ollama' ? 'Local' : 'Cloud'})
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                           ))}
-                      </select>
+                        </div>
+                      )}
                    </div>
-                   
+
                    <button
                       type="submit"
                       onClick={handleSendMessage}
@@ -668,10 +880,14 @@ export default function ChatHub() {
             
             <div className="mt-4 flex flex-col items-center gap-1">
                <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
-                 {getChatModelOption(selectedModelId).description}
+                 {chatMode === 'compare'
+                   ? 'Compare three model answers from one prompt'
+                   : 'Chat with one model at a time'}
                </p>
                <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
-                 {getChatModelOption(selectedModelId).details}
+                 {chatMode === 'compare'
+                   ? 'Pick any three different LLMs above and Scarlet AI will return all three replies in the same chat.'
+                   : 'Choose one LLM for a focused answer, or switch to 3 LLMs anytime for side-by-side comparison.'}
                </p>
             </div>
           </div>

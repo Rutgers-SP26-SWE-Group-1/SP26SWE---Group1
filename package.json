@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "npx jasmine",
-    "test:browser": "node tests/browser-smoke-test.js"
+    "test:unit": "npx jasmine spec/auth_spec.js spec/profile_spec.js spec/chat_spec.js spec/chat_logic_spec.js spec/chat_selection_logic_spec.js spec/chat_api_logic_spec.js",
+    "test:browser": "node tests/browser-smoke-test.js",
+    "test:browser:compare": "node tests/compare-llms-puppeteer-test.js",
+    "test:browser:all": "node tests/run-browser-tests.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",

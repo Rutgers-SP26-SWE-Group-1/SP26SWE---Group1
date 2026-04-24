@@ -1,6 +1,39 @@
 const { Given, When, Then } = require('@cucumber/cucumber');
 const assert = require('assert');
 
+async function ensureChatApiMock(world) {
+  if (world.chatApiMockAttached) {
+    return;
+  }
+
+  await world.page.setRequestInterception(true);
+
+  world.chatApiMockHandler = async (request) => {
+    if (
+      request.url().endsWith('/api/chat') &&
+      request.method() === 'POST' &&
+      world.mockChatApiResponse
+    ) {
+      const mockResponse =
+        typeof world.mockChatApiResponse === 'function'
+          ? await world.mockChatApiResponse(request)
+          : world.mockChatApiResponse;
+
+      await request.respond({
+        status: mockResponse.status || 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockResponse.body || mockResponse),
+      });
+      return;
+    }
+
+    await request.continue();
+  };
+
+  world.page.on('request', world.chatApiMockHandler);
+  world.chatApiMockAttached = true;
+}
+
 Given('the user is on the chat page', async function () {
   await this.page.goto('http://localhost:3000/chat', { waitUntil: 'networkidle0' });
 });
@@ -10,6 +43,10 @@ Given('the user navigates to the chat page directly', async function () {
 });
 
 When('the user types {string} and sends the message', async function (message) {
+  if (this.mockChatApiResponse) {
+    await ensureChatApiMock(this);
+  }
+
   // Note: Updated to match your page.tsx textarea logic
   await this.page.waitForSelector('textarea', { timeout: 10000 });
   await this.page.type('textarea', message);

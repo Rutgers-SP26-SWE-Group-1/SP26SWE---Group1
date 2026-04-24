@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { spawnSync } = require('child_process');
 const path = require('path');
 
@@ -6,6 +7,7 @@ const TESTS = [
   'chat-interaction-test.js',
   'ui-smoke-test.js',
   'iteration2-puppeteer-test.js',
+  'compare-llms-puppeteer-test.js',
 ];
 
 for (const test of TESTS) {

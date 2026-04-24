@@ -4,11 +4,25 @@ import {
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
-import { getChatModelOption } from '@/lib/chat-models';
+import {
+  buildModelErrorResponse,
+  resolveRequestedModels,
+  selectPrimaryResponse,
+} from '@/lib/chat-api-logic';
+import { CHAT_MODEL_OPTIONS, getChatModelOption } from '@/lib/chat-models';
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
+};
+
+type ModelResponse = {
+  content: string;
+  durationMs: number;
+  isError?: boolean;
+  modelDescription: string;
+  modelId: string;
+  modelLabel: string;
 };
 
 const RUTGERS_SYSTEM_PROMPT = `
@@ -149,9 +163,37 @@ async function requestOllama(messages: ChatMessage[], model: string) {
 
     const data = await response.json();
     return data.message.content;
-  } catch (err) {
+  } catch {
     throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
   }
+}
+
+async function requestModelReply(
+  selectedModel: (typeof CHAT_MODEL_OPTIONS)[number],
+  promptMessages: ChatMessage[]
+): Promise<ModelResponse> {
+  const startTime = Date.now();
+  let content = '';
+
+  if (selectedModel.provider === 'google') {
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!apiKey) throw new Error('Google API Key missing in environment.');
+    content = await requestGemini(promptMessages, apiKey);
+  } else if (selectedModel.provider === 'groq') {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error('Groq API Key missing in environment.');
+    content = await requestGroq(promptMessages, apiKey);
+  } else {
+    content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
+  }
+
+  return {
+    content: content.trim(),
+    durationMs: Date.now() - startTime,
+    modelDescription: selectedModel.details,
+    modelId: selectedModel.id,
+    modelLabel: selectedModel.label,
+  };
 }
 
 /**
@@ -166,7 +208,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const selectedModel = getChatModelOption(body?.modelId);
+    const requestedModels = resolveRequestedModels(
+      body?.modelIds,
+      body?.modelId,
+      CHAT_MODEL_OPTIONS,
+      getChatModelOption
+    );
     const messages = sanitizeMessages(body?.messages ?? []);
     
     // Ensure history is sent to the LLM for context memory [cite: 10, 35]
@@ -186,41 +233,45 @@ export async function POST(request: Request) {
     // Append the current message
     promptMessages.push({ role: 'user', content: validation.normalizedMessage });
 
-    let content = '';
-    const startTime = Date.now();
+    const responses = await Promise.all(
+      requestedModels.map(async (selectedModel) => {
+        try {
+          return await requestModelReply(selectedModel, promptMessages);
+        } catch (modelError) {
+          const message =
+            modelError instanceof Error
+              ? modelError.message
+              : 'This model is unavailable right now.';
 
-    // ROUTING LOGIC
-    if (selectedModel.provider === 'google') {
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      if (!apiKey) throw new Error("Google API Key missing in environment.");
-      content = await requestGemini(promptMessages, apiKey);
-    } 
-    else if (selectedModel.provider === 'groq') {
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) throw new Error("Groq API Key missing in environment.");
-      content = await requestGroq(promptMessages, apiKey);
-    } 
-    else {
-      // Local Ollama Models [cite: 13, 14]
-      content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
+          return buildModelErrorResponse(selectedModel, message) satisfies ModelResponse;
+        }
+      })
+    );
+
+    const successfulResponse = selectPrimaryResponse(responses);
+
+    if (!successfulResponse) {
+      throw new Error('No model responses were generated.');
     }
 
     const conversationId = createConversationId(body?.conversationId);
 
     return NextResponse.json({
       conversationId,
-      content: content.trim(),
-      durationMs: Date.now() - startTime,
-      modelId: selectedModel.id,
-      modelLabel: selectedModel.label,
-      modelDescription: selectedModel.details,
+      content: successfulResponse.content,
+      durationMs: successfulResponse.durationMs,
+      modelId: successfulResponse.modelId,
+      modelLabel: successfulResponse.modelLabel,
+      modelDescription: successfulResponse.modelDescription,
+      responses,
       timestamp: new Date().toISOString(),
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process your message.';
     console.error('POST /api/chat failed:', error);
     return NextResponse.json(
-      { error: error.message || 'Unable to process your message.' },
+      { error: message },
       { status: 503 }
     );
   }
