@@ -8,7 +8,7 @@
 // Pre-reqs: same as feature 2 (npm run dev + ollama serve + 5 local models).
 
 const http = require('http');
-const { launch, BASE_URL, shot, loadOllamaBaseUrl } = require('./puppeteer-config');
+const { launch, BASE_URL, shot, startRecording, stopRecording, loadOllamaBaseUrl } = require('./puppeteer-config');
 const { LOCAL_OLLAMA_MODELS } = require('../src/lib/multi-llm/localModels');
 
 const PAGE = `${BASE_URL}/chat/multi`;
@@ -55,6 +55,7 @@ async function main() {
 
   const browser = await launch();
   const page = await browser.newPage();
+  const recording = await startRecording(page, 'parthaped-feature3.mp4');
 
   try {
     const seedIds = [
@@ -129,6 +130,7 @@ async function main() {
   } catch (err) {
     fail('feature3 unexpected exception', err && err.message);
   } finally {
+    await stopRecording(recording);
     await browser.close();
   }
 

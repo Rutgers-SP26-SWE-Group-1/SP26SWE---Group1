@@ -10,7 +10,7 @@
 //   * The 5 local models from src/lib/multi-llm/localModels.js are pulled.
 
 const http = require('http');
-const { launch, BASE_URL, shot, loadOllamaBaseUrl } = require('./puppeteer-config');
+const { launch, BASE_URL, shot, startRecording, stopRecording, loadOllamaBaseUrl } = require('./puppeteer-config');
 const { LOCAL_OLLAMA_MODELS } = require('../src/lib/multi-llm/localModels');
 
 const PAGE = `${BASE_URL}/chat/multi`;
@@ -60,6 +60,7 @@ async function main() {
   page.on('console', (msg) => {
     if (msg.type() === 'error') console.log(`[browser console error] ${msg.text()}`);
   });
+  const recording = await startRecording(page, 'parthaped-feature2.mp4');
 
   try {
     const seedIds = [LOCAL_OLLAMA_MODELS[3].id, LOCAL_OLLAMA_MODELS[4].id];
@@ -119,18 +120,55 @@ async function main() {
     });
     await new Promise((r) => setTimeout(r, 300));
 
+    // Intercept fetch(/api/chat/fanout) and return a crafted partial-
+    // failure payload: two fulfilled responses + one rejected. This tests
+    // the grid's error-card rendering without needing to break any of
+    // the user's real local Ollama models.
     await page.evaluate(() => {
       const originalFetch = window.fetch.bind(window);
-      window.fetch = (input, init) => {
-        try {
-          if (typeof input === 'string' && input.endsWith('/api/chat/fanout') && init && init.body) {
-            const parsed = JSON.parse(init.body);
-            if (Array.isArray(parsed.modelIds)) {
-              parsed.modelIds = [...parsed.modelIds, 'mystery-cloud-id'];
-              init = { ...init, body: JSON.stringify(parsed) };
-            }
-          }
-        } catch (_e) {}
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.endsWith('/api/chat/fanout') && init && typeof init.body === 'string') {
+          let parsed = {};
+          try { parsed = JSON.parse(init.body); } catch (_e) { parsed = {}; }
+          const ids = Array.isArray(parsed.modelIds) && parsed.modelIds.length > 0
+            ? parsed.modelIds
+            : ['tinyllama', 'gemma2-2b'];
+          const payload = {
+            conversationId: 'puppeteer-partial-failure',
+            responses: ids.map((id, index) => index === 0
+              ? {
+                  modelId: id,
+                  ollamaTag: `${id}:latest`,
+                  label: id,
+                  status: 'rejected',
+                  content: null,
+                  error: 'Simulated Ollama outage for partial-failure Puppeteer test.',
+                  durationMs: 55,
+                }
+              : {
+                  modelId: id,
+                  ollamaTag: `${id}:latest`,
+                  label: id,
+                  status: 'fulfilled',
+                  content: `OK (${id})`,
+                  error: null,
+                  durationMs: 120,
+                }),
+            summary: {
+              total: ids.length,
+              succeeded: Math.max(ids.length - 1, 0),
+              failed: 1,
+              averageMs: 100,
+            },
+            totalDurationMs: 200,
+            timestamp: new Date().toISOString(),
+          };
+          return new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
         return originalFetch(input, init);
       };
     });
@@ -156,6 +194,7 @@ async function main() {
   } catch (err) {
     fail('feature2 unexpected exception', err && err.message);
   } finally {
+    await stopRecording(recording);
     await browser.close();
   }
 

@@ -9,7 +9,7 @@
 // Pre-reqs: `npm run dev` is running on PUPPETEER_BASE_URL (default
 // http://localhost:3000). No Ollama daemon required for this feature.
 
-const { launch, BASE_URL, shot } = require('./puppeteer-config');
+const { launch, BASE_URL, shot, startRecording, stopRecording } = require('./puppeteer-config');
 const { LOCAL_OLLAMA_MODELS } = require('../src/lib/multi-llm/localModels');
 
 const PAGE = `${BASE_URL}/chat/multi`;
@@ -24,6 +24,7 @@ function fail(name, detail) { console.log(`[FAIL] ${name}${detail ? ' - ' + deta
 async function main() {
   const browser = await launch();
   const page = await browser.newPage();
+  const recording = await startRecording(page, 'parthaped-feature1.mp4');
 
   try {
     await page.evaluateOnNewDocument(
@@ -51,11 +52,17 @@ async function main() {
       ? pass(`dropdown lists all ${LOCAL_OLLAMA_MODELS.length} local models`)
       : fail('dropdown lists all 5 local models', `got ${visibleOptions.length}`);
 
-    const fourthModelId = IDS.find(async (id) => {
-      const sel = `[data-testid="multi-model-option-${id}"]`;
-      const aria = await page.$eval(sel, (n) => n.getAttribute('aria-selected'));
-      return aria === 'false';
-    }) || IDS[2];
+    async function selectedIdSet() {
+      const ids = await page.$$eval('[role="option"]', (nodes) =>
+        nodes
+          .filter((n) => n.getAttribute('aria-selected') === 'true')
+          .map((n) => (n.getAttribute('data-testid') || '').replace('multi-model-option-', '')),
+      );
+      return new Set(ids.filter(Boolean));
+    }
+
+    let selected = await selectedIdSet();
+    const fourthModelId = IDS.find((id) => !selected.has(id)) || IDS[3];
     await page.click(`[data-testid="multi-model-option-${fourthModelId}"]`);
     await new Promise((r) => setTimeout(r, 200));
     const after4 = await page.$eval(
@@ -66,11 +73,8 @@ async function main() {
       ? pass('user can add a fourth local model')
       : fail('user can add a fourth local model', `counter=${after4}`);
 
-    const remainingId = IDS.find(async (id) => {
-      const sel = `[data-testid="multi-model-option-${id}"]`;
-      const aria = await page.$eval(sel, (n) => n.getAttribute('aria-selected'));
-      return aria === 'false';
-    }) || IDS[4];
+    selected = await selectedIdSet();
+    const remainingId = IDS.find((id) => !selected.has(id)) || IDS[IDS.length - 1];
     const fifthSel = `[data-testid="multi-model-option-${remainingId}"]`;
     const fifthDisabled = await page.$eval(fifthSel, (n) => n.getAttribute('disabled') !== null);
     fifthDisabled
@@ -113,6 +117,7 @@ async function main() {
   } catch (err) {
     fail('feature1 unexpected exception', err && err.message);
   } finally {
+    await stopRecording(recording);
     await browser.close();
   }
 

@@ -17,7 +17,10 @@
     "test:cucumber:multi3": "npx cucumber-js --tags @multi3",
     "test:puppeteer:multi1": "node tests/parthaped-feature1-puppeteer-test.js",
     "test:puppeteer:multi2": "node tests/parthaped-feature2-puppeteer-test.js",
-    "test:puppeteer:multi3": "node tests/parthaped-feature3-puppeteer-test.js"
+    "test:puppeteer:multi3": "node tests/parthaped-feature3-puppeteer-test.js",
+    "test:puppeteer:multi1:video": "PUPPETEER_RECORD=1 node tests/parthaped-feature1-puppeteer-test.js",
+    "test:puppeteer:multi2:video": "PUPPETEER_RECORD=1 node tests/parthaped-feature2-puppeteer-test.js",
+    "test:puppeteer:multi3:video": "PUPPETEER_RECORD=1 node tests/parthaped-feature3-puppeteer-test.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
@@ -37,6 +40,7 @@
     "eslint-config-next": "16.1.6",
     "jasmine": "^6.1.0",
     "puppeteer": "^24.39.1",
+    "puppeteer-screen-recorder": "^3.0.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

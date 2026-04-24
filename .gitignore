@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+# test-videos intentionally tracked: the three parthaped feature demo
+# MP4s are evidence for the Individual Iteration 1 submission and are
+# referenced by name in the LaTeX report.
 
 # next.js
 /.next/

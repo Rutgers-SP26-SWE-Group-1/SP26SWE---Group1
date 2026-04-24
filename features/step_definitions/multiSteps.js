@@ -77,34 +77,72 @@ Given('the user has 4 local models selected', async function () {
   assert.strictEqual(text, '4/4', `expected counter 4/4, got ${text}`);
 });
 
-Given('the user has 3 local models selected including an invalid one', async function () {
-  // Seed two real local models and one obviously broken id to force
-  // a partial-failure response from the fan-out endpoint.
-  await this.page.evaluateOnNewDocument(
-    (key, value) => {
-      window.localStorage.setItem(key, value);
-    },
-    STORAGE_KEY,
-    JSON.stringify([VALID_IDS[0], VALID_IDS[3]]),
-  );
-  this.includeInvalidModelId = KNOWN_BAD_ID;
+Given('the user has selected {int} local models', async function (count) {
+  const ids = VALID_IDS.slice(0, count);
+  await seedSelection(this.page, ids);
   await this.page.goto(MULTI_PAGE_URL, { waitUntil: 'networkidle0' });
-  // Override the page's fetch to inject the bad id alongside the real ones.
-  await this.page.evaluate((badId) => {
+  const text = await readCounterText(this.page);
+  assert.strictEqual(text, `${count}/4`, `expected counter ${count}/4, got ${text}`);
+});
+
+Given('the user has 3 local models selected including an invalid one', async function () {
+  // Seed three real local models, then once the page loads intercept the
+  // fan-out request and return a hand-crafted partial-failure response
+  // where one of the three models is marked as rejected. This lets us
+  // test the UI's partial-failure rendering without needing to actually
+  // break one of the user's real local Ollama models.
+  await seedSelection(this.page, [VALID_IDS[0], VALID_IDS[1], VALID_IDS[3]]);
+  await this.page.goto(MULTI_PAGE_URL, { waitUntil: 'networkidle0' });
+
+  await this.page.evaluate(() => {
     const originalFetch = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      try {
-        if (typeof input === 'string' && input.endsWith('/api/chat/fanout') && init && init.body) {
-          const parsed = JSON.parse(init.body);
-          if (Array.isArray(parsed.modelIds) && !parsed.modelIds.includes(badId)) {
-            parsed.modelIds = [...parsed.modelIds, badId];
-            init = { ...init, body: JSON.stringify(parsed) };
-          }
-        }
-      } catch (_e) {}
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.endsWith('/api/chat/fanout') && init && typeof init.body === 'string') {
+        let parsed = {};
+        try { parsed = JSON.parse(init.body); } catch (_e) { parsed = {}; }
+        const ids = Array.isArray(parsed.modelIds) ? parsed.modelIds : [];
+        const payload = {
+          conversationId: 'partial-failure-test',
+          responses: ids.map((id, index) => {
+            if (index === 0) {
+              return {
+                modelId: id,
+                ollamaTag: `${id}:latest`,
+                label: id,
+                status: 'rejected',
+                content: null,
+                error: 'Simulated model failure for partial-failure acceptance test.',
+                durationMs: 42,
+              };
+            }
+            return {
+              modelId: id,
+              ollamaTag: `${id}:latest`,
+              label: id,
+              status: 'fulfilled',
+              content: `OK (${id})`,
+              error: null,
+              durationMs: 128,
+            };
+          }),
+          summary: {
+            total: ids.length,
+            succeeded: Math.max(ids.length - 1, 0),
+            failed: 1,
+            averageMs: 100,
+          },
+          totalDurationMs: 200,
+          timestamp: new Date().toISOString(),
+        };
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return originalFetch(input, init);
     };
-  }, KNOWN_BAD_ID);
+  });
 });
 
 When('the user clicks the local-models dropdown toggle', async function () {
