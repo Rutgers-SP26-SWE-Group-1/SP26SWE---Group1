@@ -1,0 +1,705 @@
+% !TEX program = pdflatex
+% Overleaf-ready single-file report.
+% Compile with pdflatex on Overleaf or locally.
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{titlesec}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  citecolor=black
+}
+
+\definecolor{codebg}{RGB}{246,246,250}
+\definecolor{codekw}{RGB}{170,40,90}
+\definecolor{codecmt}{RGB}{100,110,120}
+\definecolor{codestr}{RGB}{30,120,80}
+
+\lstdefinelanguage{JavaScriptPlus}{
+  keywords={break, case, catch, const, continue, debugger, default, delete, do,
+    else, false, finally, for, function, if, in, instanceof, let, new, null,
+    return, switch, this, throw, true, try, typeof, var, void, while, with,
+    yield, async, await, of, export, import, from, class, extends, super,
+    static, true, false},
+  keywordstyle=\color{codekw}\bfseries,
+  ndkeywords={describe, it, expect, beforeEach, afterEach, jasmine,
+    Given, When, Then, async},
+  ndkeywordstyle=\color{codekw}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=true,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{codecmt}\itshape,
+  stringstyle=\color{codestr},
+  morestring=[b]',
+  morestring=[b]"
+}
+
+\lstset{
+  language=JavaScriptPlus,
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0pt,
+  rulecolor=\color{codebg},
+  breaklines=true,
+  showstringspaces=false,
+  columns=fullflexible,
+  xleftmargin=6pt,
+  xrightmargin=6pt,
+  aboveskip=8pt,
+  belowskip=8pt
+}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+
+\title{Individual Iteration 1\\ \large Multi-LLM Local Compare on Scarlet AI}
+\author{Partha Pediredla \\ NetID: pp955 \\ GitHub: \texttt{parthaped} \\ Software Engineering, Spring 2026, Group 1}
+\date{April 23, 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Submission Pointers}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+Repository & \url{https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1} \\
+Branch & \texttt{parthaped-individual-report} \\
+Branch URL & \url{https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/tree/parthaped-individual-report} \\
+Local feature page & \url{http://localhost:3000/chat/multi} \\
+Customer need addressed & ``Get answers from multiple LLMs simultaneously.'' \\
+LLM constraint (mine) & Local Ollama models only (no cloud APIs in any new code path). \\
+\bottomrule
+\end{tabularx}
+
+\section{User Stories and Features}
+
+\subsection{User Stories}
+
+\paragraph{User Story 1 (3 points).}
+As a Rutgers student, so that I can compare how different small open models
+phrase the same answer, I want to type one prompt on a dedicated compare page
+and have every model I selected reply at the same time.
+
+\paragraph{User Story 2 (2 points).}
+As a Rutgers student running models on my own laptop, so that I do not waste
+disk or RAM on models I am not using right now, I want to pick which local
+models answer my next question from a chip-style dropdown that caps the
+selection at four.
+
+\paragraph{User Story 3 (2 points).}
+As a Rutgers student, so that I can quickly tell which model gave the
+fastest or clearest answer, I want every reply rendered in its own card
+inline on the same page, with a model label, a latency badge, and an obvious
+``fastest'' marker on the quickest successful response.
+
+\subsection{SMART Justification}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Specific.} Each story names a single screen
+    (\texttt{/chat/multi}), a single UI primitive (chip dropdown,
+    inline grid), and a single backend route (\texttt{POST
+    /api/chat/fanout}).
+  \item \textbf{Measurable.} The selection cap is a literal constant
+    (\texttt{MAX\_MODELS = 4}); the per-card latency badge is asserted in
+    Puppeteer as a regex \texttt{/\textbackslash d+\textbackslash.\textbackslash d+s/}.
+  \item \textbf{Achievable.} The work reuses the team's existing
+    \texttt{validateChatRequest}, \texttt{sanitizeMessages}, and
+    \texttt{createConversationId} helpers; no new third-party SDK is
+    introduced.
+  \item \textbf{Relevant.} Directly answers the customer need without
+    duplicating teammate Shiv's modal-based ``select 3 models'' work.
+  \item \textbf{Timeboxed.} Scope sized for a single iteration; only the
+    new files under \texttt{src/lib/multi-llm/}, \texttt{src/components/multi/},
+    \texttt{src/app/api/chat/fanout/}, and \texttt{src/app/chat/multi/}
+    are touched.
+\end{itemize}
+
+\subsection{Selected Features}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Feature 1: Local-models chip dropdown} with a 1--4 cap and
+    a live ``\(n/4\)'' counter, backed by a typed local registry that
+    knows nothing about cloud providers.
+  \item \textbf{Feature 2: Parallel server-side fan-out} of one prompt to
+    every selected local model via a dedicated
+    \texttt{POST /api/chat/fanout} route that uses \texttt{Promise.all}
+    with per-model error isolation.
+  \item \textbf{Feature 3: Inline side-by-side comparison grid} that
+    appears in the same page as the prompt composer (no overlay, no
+    modal), with a fastest-response badge and a copy-to-clipboard
+    button per card.
+\end{enumerate}
+
+\subsection{What Makes This Submission Individualized}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Different UI primitive.} Chip dropdown anchored beside the
+    composer instead of a floating modal card.
+  \item \textbf{Different backend shape.} A new \texttt{/api/chat/fanout}
+    route that runs all calls server-side in parallel, returning a single
+    \texttt{\{ responses: [...] \}} payload. Other team members loop on
+    the client.
+  \item \textbf{Different model set.} Five local Ollama models with tags
+    that are deliberately not the same as teammate Shiv's
+    \texttt{mistral / llama3.1 / deepseek-r1:8b / qwen2.5-coder:7b /
+    gemma3:4b}.  The set used here is
+    \texttt{llama3.2:latest}, \texttt{phi3:mini},
+    \texttt{qwen2.5:3b}, \texttt{tinyllama:latest},
+    \texttt{gemma2:2b}.
+  \item \textbf{Different render path.} An inline CSS-grid of cards on
+    the same page, not a separate modal that opens and closes.
+  \item \textbf{Local-only.} The new code path imports nothing from
+    teammates' cloud-routed handler, so the feature cannot accidentally
+    fall back to Gemini, Groq, or Anthropic.
+\end{itemize}
+
+\section{UI Design}
+
+\subsection{Pages in the Project}
+
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Route} & \textbf{Purpose} & \textbf{Owner} \\
+\midrule
+\texttt{/} & Marketing landing & shared \\
+\texttt{/login}, \texttt{/signup} & Supabase auth (\texttt{@scarletmail.rutgers.edu}) & shared \\
+\texttt{/profile} & User profile management & shared \\
+\texttt{/chat} & Single-model chat hub & shared \\
+\texttt{/chat/multi} & Local multi-LLM compare (\textbf{new in this iteration}) & Partha \\
+\bottomrule
+\end{tabularx}
+
+\subsection{User Flow}
+
+\begin{enumerate}[leftmargin=*]
+  \item User signs in (or skips auth) and lands on \texttt{/chat}.
+  \item User clicks ``Local multi-LLM compare'' in the chat hub
+    (or visits \texttt{/chat/multi} directly).
+  \item User opens the chip-style dropdown and confirms a 1--4 model
+    selection.  The selection is persisted in
+    \texttt{localStorage} under
+    \texttt{scarlet-ai-multi-llm-selection}.
+  \item User types a single prompt in the composer and presses
+    ``Ask all selected''.
+  \item The browser POSTs to \texttt{/api/chat/fanout}; the server
+    fans out to every selected Ollama model in parallel and returns
+    one combined payload.
+  \item The page renders a card per model (label, family, Ollama
+    tag, latency, copy button) inline in the transcript.  The fastest
+    successful card receives a green ``fastest'' badge.
+  \item User may clear the transcript or repeat with a new prompt or a
+    new selection.
+\end{enumerate}
+
+\subsection{Lo-Fi Sketches}
+
+\begin{quote}\itshape
+The lo-fi sketches done in class are stored in
+\texttt{report/figures/lofi-feature\{1,2,3\}.png}.  If the figures are
+not present at compile time the placeholders below render as gray
+boxes; replace the \texttt{\textbackslash includegraphics} calls
+once the scans are added.
+\end{quote}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\textwidth}
+\centering\vspace{0.6cm}
+\textit{Figure placeholder:} \texttt{report/figures/lofi-feature1.png}\\
+Chip dropdown anchored next to the prompt composer; cap badge shows ``3/4''.
+\vspace{0.6cm}
+\end{minipage}}
+\end{center}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\textwidth}
+\centering\vspace{0.6cm}
+\textit{Figure placeholder:} \texttt{report/figures/lofi-feature2.png}\\
+One prompt $\rightarrow$ fan-out to all selected models $\rightarrow$ one merged payload.
+\vspace{0.6cm}
+\end{minipage}}
+\end{center}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\textwidth}
+\centering\vspace{0.6cm}
+\textit{Figure placeholder:} \texttt{report/figures/lofi-feature3.png}\\
+Inline grid of model cards on the same page; ``fastest'' badge on the quickest reply.
+\vspace{0.6cm}
+\end{minipage}}
+\end{center}
+
+\section{Unit Tests and Acceptance Tests}
+
+\subsection{TDD Procedure}
+
+For each feature I wrote the Jasmine spec first against a pure helper
+module, then implemented the module, then wired the module into the
+React component or Next.js route, and finally added the Cucumber and
+Puppeteer flows.  Concretely:
+
+\begin{enumerate}[leftmargin=*]
+  \item Draft the user story.
+  \item Write Jasmine \texttt{describe}/\texttt{it} blocks describing
+    the expected pure-function behaviour.
+  \item Implement the helper in \texttt{src/lib/multi-llm/} until the
+    spec passes.
+  \item Write Cucumber scenarios that drive the same behaviour through
+    the live UI.
+  \item Implement the React component / API route until both layers
+    pass.
+  \item Add a Puppeteer script as the headed acceptance demo.
+  \item Commit and push.
+\end{enumerate}
+
+\subsection{Test-Suite Layout}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Jasmine} (\texttt{spec/}): one spec file per feature,
+    each one a single \texttt{describe} block grouping all
+    \texttt{it} cases for that feature.  Pure-function tests; no
+    network, no DOM.
+  \item \textbf{Cucumber} (\texttt{features/}): one feature file per
+    feature.  Tagged with \texttt{@multi1}, \texttt{@multi2},
+    \texttt{@multi3} so each can be invoked independently.  Steps
+    live in
+    \texttt{features/step\_definitions/multiSteps.js}.
+  \item \textbf{Puppeteer} (\texttt{tests/}): one script per feature.
+    Each opens a browser, seeds the localStorage selection, and asserts
+    DOM and network behaviour, dumping screenshots into
+    \texttt{test-screenshots/}.
+\end{itemize}
+
+\section{Feature 1: Local-Models Chip Dropdown}
+
+\subsection{Cucumber Acceptance Scenarios}
+
+\begin{lstlisting}
+@multi @multi1
+Feature: Multi-LLM dropdown selection (Feature 1, parthaped)
+
+  Background:
+    Given the user is on the multi-LLM compare page
+
+  Scenario: The chip-style dropdown opens on click
+  Scenario: The user can add a fourth distinct local model
+  Scenario: The dropdown refuses to add a fifth local model
+  Scenario: The dropdown refuses to drop below the one-model floor
+\end{lstlisting}
+
+Full file: \texttt{features/multi-select.feature}.  Steps:
+\texttt{features/step\_definitions/multiSteps.js}.
+
+\subsection{Jasmine Unit Tests}
+
+Spec file: \texttt{spec/multi\_selection\_spec.js}.  All nine cases
+exercise the pure module
+\texttt{src/lib/multi-llm/selection.js}:
+
+\begin{itemize}[leftmargin=*]
+  \item exposes the \(1\le n \le 4\) selection cap;
+  \item seeds the first registered local model when no initial ids
+    are supplied;
+  \item honours a caller-supplied seed but caps it at
+    \texttt{MAX\_MODELS} and ignores unknown ids;
+  \item opens and closes the dropdown via pure transitions;
+  \item lets the user add a second, third, and fourth distinct model;
+  \item refuses to add a fifth model once the cap is reached;
+  \item lets the user deselect down to one model but no further;
+  \item silently ignores toggling an unknown model id;
+  \item \texttt{clearSelection} resets to a single default model.
+\end{itemize}
+
+Representative snippet:
+
+\begin{lstlisting}
+it('refuses to add a fifth model once the cap is reached', function () {
+  let state = createSelectionState(LOCAL_OLLAMA_MODELS.slice(0, 4).map((m) => m.id));
+  const before = state.selectedModelIds.slice();
+  state = toggleModel(state, LOCAL_OLLAMA_MODELS[4].id);
+  expect(state.selectedModelIds).toEqual(before);
+  expect(selectionCount(state)).toBe(MAX_MODELS);
+});
+\end{lstlisting}
+
+\subsection{Puppeteer}
+
+Script: \texttt{tests/parthaped-feature1-puppeteer-test.js}.
+Asserts: page load; default ``3/4'' counter; dropdown opens on click;
+all five local models listed; fourth selectable; fifth disabled at
+the cap; deselection floor at 1; the lone selected option becomes
+unclickable.
+
+\section{Feature 2: Parallel Fan-Out}
+
+\subsection{Cucumber Acceptance Scenarios}
+
+\begin{lstlisting}
+@multi @multi2
+Feature: Parallel fan-out to selected local models
+
+  Scenario: One prompt produces one card per selected model
+  Scenario: Each card is labelled with the local model that produced it
+  Scenario: A failure in one model does not block the others
+\end{lstlisting}
+
+Full file: \texttt{features/multi-fanout.feature}.
+
+\subsection{Jasmine Unit Tests}
+
+Spec file: \texttt{spec/multi\_fanout\_spec.js}.  Coverage:
+
+\begin{itemize}[leftmargin=*]
+  \item rejects an empty model list with a useful error;
+  \item rejects an empty prompt message list;
+  \item dispatches the same prompt to every selected model;
+  \item produces one response per selected model with model id and
+    label;
+  \item isolates per-model failures so siblings still resolve;
+  \item runs requests concurrently rather than sequentially
+    (timed assertion);
+  \item records a non-negative \texttt{durationMs} for every
+    response;
+  \item \texttt{summarizeFanout} reports correct succeeded/failed
+    counts;
+  \item returns an error entry (not a throw) when an unknown model id
+    sneaks in.
+\end{itemize}
+
+The concurrency check is the most important assertion of the feature:
+
+\begin{lstlisting}
+it('runs requests concurrently rather than sequentially', async function () {
+  const startedAt = Date.now();
+  const PER_MODEL_DELAY_MS = 80;
+  await runFanout({
+    modelIds: [
+      LOCAL_OLLAMA_MODELS[0].id,
+      LOCAL_OLLAMA_MODELS[1].id,
+      LOCAL_OLLAMA_MODELS[2].id,
+      LOCAL_OLLAMA_MODELS[3].id,
+    ],
+    promptMessages: PROMPT_MESSAGES,
+    requestModelResponse: ({ option }) =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve(`${option.label} done`), PER_MODEL_DELAY_MS);
+      }),
+  });
+  const elapsed = Date.now() - startedAt;
+  expect(elapsed).toBeLessThan(PER_MODEL_DELAY_MS * 3);
+});
+\end{lstlisting}
+
+\subsection{Puppeteer}
+
+Script: \texttt{tests/parthaped-feature2-puppeteer-test.js}.
+Asserts: seeded 2/4 selection; one card per selected model after
+submission; every card has a known local-model label; every card
+shows a latency reading; injecting an invalid model id produces
+exactly one error card and the valid models still respond.
+
+\section{Feature 3: Inline Side-by-Side Grid}
+
+\subsection{Cucumber Acceptance Scenarios}
+
+\begin{lstlisting}
+@multi @multi3
+Feature: Side-by-side comparison grid
+
+  Scenario: The grid renders one column per model on smaller selections
+  Scenario: The grid stays visible after the answer arrives
+  Scenario: Clearing the transcript empties the grid
+\end{lstlisting}
+
+Full file: \texttt{features/multi-grid.feature}.
+
+\subsection{Jasmine Unit Tests}
+
+Spec file: \texttt{spec/multi\_response\_grid\_spec.js}.  Coverage:
+
+\begin{itemize}[leftmargin=*]
+  \item returns an empty array when there are no responses;
+  \item produces one section per response, in submission order;
+  \item resolves human-friendly labels and family names from the
+    registry;
+  \item falls back to the response label when the model id is unknown;
+  \item marks rejected responses as errors and surfaces the message;
+  \item \texttt{pickFastestSection} picks the lowest \texttt{durationMs}
+    among successful responses;
+  \item \texttt{pickFastestSection} ignores rejected responses;
+  \item \texttt{pickFastestSection} returns null when every response
+    failed;
+  \item \texttt{gridColumnCount} ramps \(1\to1, 2\to2, 3+\to3\)
+    columns.
+\end{itemize}
+
+Representative snippet:
+
+\begin{lstlisting}
+it('pickFastestSection ignores rejected responses', function () {
+  const sections = buildGridSections([
+    makeRejected(LOCAL_OLLAMA_MODELS[0].id, 'oops', 5),
+    makeFulfilled(LOCAL_OLLAMA_MODELS[1].id, 'b', 700),
+  ]);
+  const fastest = pickFastestSection(sections);
+  expect(fastest.modelId).toBe(LOCAL_OLLAMA_MODELS[1].id);
+});
+\end{lstlisting}
+
+\subsection{Puppeteer}
+
+Script: \texttt{tests/parthaped-feature3-puppeteer-test.js}.
+Asserts: the grid is hidden before any prompt is sent; appears inline
+after submission; one card per selected model; every card has a
+distinct model label and a latency reading; exactly one card is
+marked ``fastest''; the grid is removed after clearing the
+transcript.
+
+\section{Software Architecture and Implementation}
+
+\subsection{REST API}
+
+The new code adds exactly one endpoint:
+
+\begin{lstlisting}
+POST /api/chat/fanout
+
+Request body
+{
+  "message":        "<user prompt>",          // required, <= 2000 chars
+  "modelIds":       ["llama3.2", "phi3-mini"],// 1..4 entries, all local
+  "messages":       [ { role, content }, ... ], // optional history
+  "conversationId": "<existing-uuid>"         // optional
+}
+
+Response (200)
+{
+  "conversationId": "<uuid>",
+  "responses": [
+    {
+      "modelId": "llama3.2",
+      "modelLabel": "Llama 3.2",
+      "ollamaTag": "llama3.2:latest",
+      "status": "fulfilled" | "rejected",
+      "content": "...",
+      "error":   "..." (only when rejected),
+      "durationMs": 832
+    },
+    ...
+  ],
+  "summary":          { "total":3, "succeeded":2, "failed":1, "averageMs":910 },
+  "totalDurationMs":  1240,
+  "timestamp":        "2026-04-23T22:00:00.000Z"
+}
+
+Error (400) when message empty / missing / >2000 chars or no valid local
+model ids; (500) when the fan-out itself throws.
+\end{lstlisting}
+
+\subsection{Routing Table}
+
+\begin{tabularx}{\textwidth}{lllX}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Status} & \textbf{Purpose} \\
+\midrule
+GET  & \texttt{/} & shared & Landing page \\
+GET  & \texttt{/login}, \texttt{/signup} & shared & Supabase auth screens \\
+POST & \texttt{/api/auth/signup} & shared & Sign-up handler \\
+GET  & \texttt{/profile} & shared & Profile management \\
+GET  & \texttt{/chat} & shared & Single-model chat hub \\
+GET  & \texttt{/chat/multi} & \textbf{new} & Multi-LLM compare page (Partha) \\
+POST & \texttt{/api/chat} & shared & Single-model chat (existing) \\
+POST & \texttt{/api/chat/fanout} & \textbf{new} & Parallel local fan-out (Partha) \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Database Design}
+
+The shared Supabase schema is unchanged: it stores a row per
+authenticated user (\texttt{@scarletmail.rutgers.edu}) plus profile
+metadata.  Multi-model conversations themselves are deliberately
+\emph{not} persisted server-side this iteration; they live in
+\texttt{localStorage}:
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Key} & \textbf{Shape} \\
+\midrule
+\texttt{scarlet-ai-multi-llm-selection} &
+\texttt{string[]} of local-model ids that survives reload. \\
+\texttt{scarlet-ai-conversations} (existing) &
+Single-model transcripts kept by teammates' chat hub. \\
+\bottomrule
+\end{tabularx}
+
+The fan-out route reuses
+\texttt{createConversationId} from \texttt{src/lib/chat-logic.js},
+so when a future iteration starts persisting multi-model turns into
+Supabase the response payload already carries a stable id.
+
+\subsection{Component / Module Layout}
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{src/lib/multi-llm/localModels.js} -- registry of the
+    five local Ollama models (id, label, ollamaTag, family, blurb,
+    sizeMb), plus \texttt{getLocalModel}, \texttt{listLocalModelIds},
+    \texttt{isLocalModelId}.
+  \item \texttt{src/lib/multi-llm/selection.js} -- pure dropdown state
+    machine.
+  \item \texttt{src/lib/multi-llm/ollamaClient.js} -- thin
+    \texttt{POST /api/chat} client; throws typed
+    \texttt{OllamaUnavailableError} or
+    \texttt{OllamaModelMissingError}.
+  \item \texttt{src/lib/multi-llm/fanout.js} --
+    \texttt{Promise.all}-based fan-out with per-model error isolation;
+    \texttt{requestModelResponse} is dependency-injected for testability.
+  \item \texttt{src/lib/multi-llm/grid.js} --
+    \texttt{buildGridSections}, \texttt{pickFastestSection},
+    \texttt{gridColumnCount}.
+  \item \texttt{src/app/api/chat/fanout/route.ts} -- Next.js route
+    handler; imports nothing from the cloud-routed
+    \texttt{src/app/api/chat/route.ts}.
+  \item \texttt{src/components/multi/MultiModelDropdown.tsx} --
+    chip dropdown.
+  \item \texttt{src/components/multi/MultiResponseGrid.tsx} +
+    \texttt{ModelResponseCard.tsx} -- inline CSS-grid renderer.
+  \item \texttt{src/app/chat/multi/page.tsx} -- the new feature page.
+\end{itemize}
+
+\section{Instructions for the TAs}
+
+\subsection{Installation}
+
+\begin{lstlisting}
+git clone https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1.git
+cd SP26SWE---Group1
+git fetch origin
+git checkout -b parthaped-individual-report origin/parthaped-individual-report
+npm install
+\end{lstlisting}
+
+\subsection{Environment Variables}
+
+Create \texttt{.env.local} in the repository root:
+
+\begin{lstlisting}
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+\end{lstlisting}
+
+No cloud LLM keys are required to run any of the three features in
+this submission.
+
+\subsection{Local Models}
+
+In one terminal:
+
+\begin{lstlisting}
+ollama serve
+\end{lstlisting}
+
+In another terminal pull the five models the dropdown lists:
+
+\begin{lstlisting}
+ollama pull llama3.2
+ollama pull phi3:mini
+ollama pull qwen2.5:3b
+ollama pull tinyllama
+ollama pull gemma2:2b
+ollama list
+\end{lstlisting}
+
+\texttt{ollama list} should show the five tags above.  Total disk
+footprint is roughly nine gigabytes.
+
+\subsection{Run the Application}
+
+\begin{lstlisting}
+npm run dev
+# then open http://localhost:3000/chat/multi
+\end{lstlisting}
+
+You should see a chip dropdown with three models pre-selected.  Type a
+short prompt (for example, ``Reply with the single word OK.'')
+and press \emph{Ask all selected}.  Three cards should render in
+parallel, each labelled with its model name, its Ollama family, the
+exact tag, a latency badge, and a copy button.  The fastest
+successful response will carry a green ``fastest'' marker.
+
+\subsection{Jasmine Unit Tests}
+
+Run each feature's spec independently:
+
+\begin{lstlisting}
+npm run test:jasmine:multi1
+npm run test:jasmine:multi2
+npm run test:jasmine:multi3
+\end{lstlisting}
+
+You can also run all three plus the team's other unit tests with
+\texttt{npm test}.
+
+\subsection{Cucumber Acceptance Tests}
+
+The Cucumber suites need both the dev server and the local Ollama
+daemon running because the steps drive the live UI:
+
+\begin{lstlisting}
+# terminal 1
+npm run dev
+
+# terminal 2
+npm run test:cucumber:multi1
+npm run test:cucumber:multi2
+npm run test:cucumber:multi3
+\end{lstlisting}
+
+The \texttt{@multi1}/\texttt{@multi2}/\texttt{@multi3} tags scope each
+run to one feature so a failure in one does not block the others.
+
+\subsection{Puppeteer Tests}
+
+Same pre-requisites:
+
+\begin{lstlisting}
+# terminal 1
+npm run dev
+
+# terminal 2
+npm run test:puppeteer:multi1
+npm run test:puppeteer:multi2
+npm run test:puppeteer:multi3
+\end{lstlisting}
+
+Each script prints \texttt{[PASS]} / \texttt{[FAIL]} per assertion
+and exits with a non-zero code on failure.  Screenshots are written
+to \texttt{test-screenshots/parthaped-feature*.png}.
+
+\subsection{Process Recap}
+
+\begin{enumerate}[leftmargin=*]
+  \item User Story
+  \item Jasmine unit tests for the pure helper module
+  \item Implement helper until specs pass
+  \item Cucumber scenarios against the live UI
+  \item Implement React component / API route until scenarios pass
+  \item Headed Puppeteer demo as the acceptance gate
+  \item Commit and push to \texttt{parthaped-individual-report}
+\end{enumerate}
+
+\end{document}

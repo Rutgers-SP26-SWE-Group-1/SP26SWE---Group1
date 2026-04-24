@@ -8,7 +8,16 @@
     "start": "next start",
     "lint": "eslint",
     "test": "npx jasmine",
-    "test:browser": "node tests/browser-smoke-test.js"
+    "test:browser": "node tests/browser-smoke-test.js",
+    "test:jasmine:multi1": "npx jasmine --config=spec/support/jasmine.mjs spec/multi_selection_spec.js",
+    "test:jasmine:multi2": "npx jasmine --config=spec/support/jasmine.mjs spec/multi_fanout_spec.js",
+    "test:jasmine:multi3": "npx jasmine --config=spec/support/jasmine.mjs spec/multi_response_grid_spec.js",
+    "test:cucumber:multi1": "npx cucumber-js --tags @multi1",
+    "test:cucumber:multi2": "npx cucumber-js --tags @multi2",
+    "test:cucumber:multi3": "npx cucumber-js --tags @multi3",
+    "test:puppeteer:multi1": "node tests/parthaped-feature1-puppeteer-test.js",
+    "test:puppeteer:multi2": "node tests/parthaped-feature2-puppeteer-test.js",
+    "test:puppeteer:multi3": "node tests/parthaped-feature3-puppeteer-test.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
