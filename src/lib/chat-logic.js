@@ -62,34 +62,6 @@ const MATH_INDICATOR_PATTERNS = [
   /(^|[^a-z])x([^a-z]|$)/i,
 ];
 
-const COURSE_INDICATOR_PATTERNS = [
-  /\bcourse\b/i,
-  /\bcourses\b/i,
-  /\bclass\b/i,
-  /\bclasses\b/i,
-  /\bsection\b/i,
-  /\bsemester\b/i,
-  /\bavailability\b/i,
-  /\bopen\b/i,
-  /\bclosed\b/i,
-  /\bsubject\b/i,
-];
-
-const WEATHER_INDICATOR_PATTERNS = [
-  /\bweather\b/i,
-  /\bforecast\b/i,
-  /\btemperature\b/i,
-  /\bcold\b/i,
-  /\bhot\b/i,
-  /\brain\b/i,
-  /\bwindy\b/i,
-  /\bwear\b/i,
-  /\bclothing\b/i,
-  /\bumbrella\b/i,
-  /\btoday\b/i,
-  /\btomorrow\b/i,
-];
-
 function validateChatRequest(message) {
   const normalized = normalizeMessage(message);
 
@@ -130,26 +102,12 @@ function resolveChatModelId(selectedModelId, options = {}) {
   return selectedModelId;
 }
 
-function detectRutgersCourseWeatherRequest(message) {
-  const normalized = normalizeMessage(message).toLowerCase();
-  const mentionsRutgers = normalized.includes('rutgers');
-  const mentionsCampus =
-    normalized.includes('new brunswick') ||
-    normalized.includes('newark') ||
-    normalized.includes('camden');
-  const needsCourse =
-    (mentionsRutgers || mentionsCampus) &&
-    COURSE_INDICATOR_PATTERNS.some((pattern) => pattern.test(normalized));
-  const needsWeather =
-    WEATHER_INDICATOR_PATTERNS.some((pattern) => pattern.test(normalized)) &&
-    (mentionsRutgers || mentionsCampus || normalized.includes('wear'));
-  const needsClothing = /\bwear\b/i.test(normalized) || /\bclothing\b/i.test(normalized);
-
+function detectRutgersCourseWeatherRequest() {
   return {
-    needsCourse,
-    needsWeather,
-    needsClothing,
-    needsAny: needsCourse || needsWeather,
+    needsCourse: false,
+    needsWeather: false,
+    needsClothing: false,
+    needsAny: false,
   };
 }
 

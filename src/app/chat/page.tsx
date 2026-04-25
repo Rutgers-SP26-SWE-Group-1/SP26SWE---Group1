@@ -3,10 +3,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import DebateModeToggle from '@/components/DebateModeToggle';
+import DebateThreadPanel, { type DebateThreadView } from '@/components/DebateThreadPanel';
 import LogoutButton from '@/components/LogoutButton';
+import ModelDebatePanel from '@/components/ModelDebatePanel';
 import { detectMathReasoningRequest, resolveChatModelId } from '@/lib/chat-logic';
 import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL, getChatModelOption } from '@/lib/chat-models';
-import { getRutgersLoadingState } from '@/lib/rutgers-course-weather';
+import { extractRutgersTakenCourses, getRutgersLoadingState } from '@/lib/rutgers-course-weather';
 import { supabase, SUPABASE_ERROR_MESSAGE } from '@/lib/supabase';
 
 type Message = {
@@ -16,6 +19,7 @@ type Message = {
   modelId?: string;
   modelLabel?: string;
   modelDescription?: string;
+  debateThreadId?: string;
 };
 
 type Conversation = {
@@ -24,6 +28,8 @@ type Conversation = {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  archived?: boolean;
+  folderId?: string | null;
 };
 
 type ConversationSearchResult = {
@@ -33,24 +39,54 @@ type ConversationSearchResult = {
   rank: number;
 };
 
+type ChatFolder = {
+  id: string;
+  name: string;
+  createdAt: string;
+  collapsed: boolean;
+};
+
+type TakenCourse = {
+  code: string;
+  title?: string;
+};
+
 const STORAGE_KEY = 'scarlet-ai-conversations';
+const FOLDERS_STORAGE_KEY = 'scarlet-ai-folders';
+const TAKEN_COURSES_STORAGE_KEY = 'scarlet-ai-taken-courses';
+const DEBATE_THREADS_STORAGE_KEY = 'scarlet-ai-debate-threads';
+const DEFAULT_FOLDER_NAME = 'Main';
 const STEP_BY_STEP_THINKING_MESSAGES = [
   'Understanding problem...',
   'Planning solution...',
   'Generating explanation...',
 ];
 
+function createId(prefix: string) {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}`;
+}
+
 function createUntitledConversation(): Conversation {
   const now = new Date().toISOString();
   return {
-    id:
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `conversation-${Date.now()}`,
+    id: createId('conversation'),
     title: 'New chat',
     createdAt: now,
     updatedAt: now,
     messages: [],
+    archived: false,
+    folderId: null,
+  };
+}
+
+function createDefaultFolder(): ChatFolder {
+  return {
+    id: 'default-main-folder',
+    name: DEFAULT_FOLDER_NAME,
+    createdAt: new Date().toISOString(),
+    collapsed: false,
   };
 }
 
@@ -79,6 +115,8 @@ function buildSearchPreview(text: string, query: string, maxLength = 80) {
 
 export default function ChatHub() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [folders, setFolders] = useState<ChatFolder[]>([]);
+  const [takenCourses, setTakenCourses] = useState<TakenCourse[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string>('');
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -88,6 +126,13 @@ export default function ChatHub() {
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  const [debateMode, setDebateMode] = useState(false);
+  const [debateModelIds, setDebateModelIds] = useState<string[]>(['mistral', 'gemma']);
+  const [debateDepth, setDebateDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
+  const [debateThreads, setDebateThreads] = useState<Record<string, DebateThreadView>>({});
+  const [activeDebateThreadId, setActiveDebateThreadId] = useState<string | null>(null);
+  const [isDebatePanelOpen, setIsDebatePanelOpen] = useState(false);
+  const [isDebateFollowUpSending, setIsDebateFollowUpSending] = useState(false);
   const [stepByStepMode, setStepByStepMode] = useState(false);
   const [thinkingMessageIndex, setThinkingMessageIndex] = useState(0);
   const [activeThinkingModelId, setActiveThinkingModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
@@ -100,10 +145,9 @@ export default function ChatHub() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'archived'>('chats');
   
-  // NEW SEARCH STATES
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -111,53 +155,72 @@ export default function ChatHub() {
 
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+  const activeDebateThread = activeDebateThreadId ? debateThreads[activeDebateThreadId] ?? null : null;
   const profileHref = userEmail ? '/profile' : '/login';
+
+  const mergeTakenCourses = (currentCourses: TakenCourse[], newCourses: TakenCourse[]) => {
+    const courseMap = new Map<string, TakenCourse>();
+
+    for (const course of currentCourses) {
+      courseMap.set(course.code.toUpperCase(), { ...course, code: course.code.toUpperCase() });
+    }
+
+    for (const course of newCourses) {
+      courseMap.set(course.code.toUpperCase(), { ...course, code: course.code.toUpperCase() });
+    }
+
+    return Array.from(courseMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+  };
 
   // SEARCH FILTER LOGIC
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-  const filteredConversations: ConversationSearchResult[] = conversations
-    .map((conversation) => {
-      if (!normalizedSearchQuery) {
-        return {
-          conversation,
-          preview: new Date(conversation.updatedAt).toLocaleString([], {
-            dateStyle: 'short',
-            timeStyle: 'short',
-          }),
-          matchType: 'title' as const,
-          rank: 0,
-        };
-      }
-
-      const normalizedTitle = conversation.title.toLowerCase();
-      const titleIndex = normalizedTitle.indexOf(normalizedSearchQuery);
-
-      if (titleIndex !== -1) {
-        return {
-          conversation,
-          preview: `Title match: ${buildSearchPreview(conversation.title, normalizedSearchQuery, 60)}`,
-          matchType: 'title' as const,
-          rank: titleIndex,
-        };
-      }
-
-      const matchingMessage = conversation.messages.find((message) =>
-        message.content.toLowerCase().includes(normalizedSearchQuery)
-      );
-
-      if (!matchingMessage) {
-        return null;
-      }
-
-      const messageIndex = matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery);
-
+  const getSearchResult = (conversation: Conversation): ConversationSearchResult | null => {
+    if (!normalizedSearchQuery) {
       return {
         conversation,
-        preview: buildSearchPreview(matchingMessage.content, normalizedSearchQuery),
-        matchType: 'message' as const,
-        rank: messageIndex + 1000,
+        preview: new Date(conversation.updatedAt).toLocaleString([], {
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }),
+        matchType: 'title' as const,
+        rank: 0,
       };
+    }
+
+    const normalizedTitle = conversation.title.toLowerCase();
+    const titleIndex = normalizedTitle.indexOf(normalizedSearchQuery);
+
+    if (titleIndex !== -1) {
+      return {
+        conversation,
+        preview: `Title match: ${buildSearchPreview(conversation.title, normalizedSearchQuery, 60)}`,
+        matchType: 'title' as const,
+        rank: titleIndex,
+      };
+    }
+
+    const matchingMessage = conversation.messages.find((message) =>
+      message.content.toLowerCase().includes(normalizedSearchQuery)
+    );
+
+    if (!matchingMessage) {
+      return null;
+    }
+
+    const messageIndex = matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery);
+
+    return {
+      conversation,
+      preview: buildSearchPreview(matchingMessage.content, normalizedSearchQuery),
+      matchType: 'message' as const,
+      rank: messageIndex + 1000,
+    };
+  };
+
+  const filteredConversations: ConversationSearchResult[] = conversations
+    .map((conversation) => {
+      return getSearchResult(conversation);
     })
     .filter((result): result is ConversationSearchResult => result !== null)
     .sort((a, b) => {
@@ -173,6 +236,23 @@ export default function ChatHub() {
         new Date(b.conversation.updatedAt).getTime() - new Date(a.conversation.updatedAt).getTime()
       );
     });
+
+  const recentConversationResults = filteredConversations.filter(
+    ({ conversation }) => !conversation.archived && !conversation.folderId
+  );
+  const archivedConversationResults = filteredConversations.filter(
+    ({ conversation }) => conversation.archived
+  );
+  const folderConversationResults = folders.map((folder) => ({
+    folder,
+    results: filteredConversations.filter(
+      ({ conversation }) => !conversation.archived && conversation.folderId === folder.id
+    ),
+  }));
+  const hasVisibleChats =
+    recentConversationResults.length > 0 ||
+    folderConversationResults.some(({ results }) => results.length > 0);
+  const hasVisibleArchivedConversations = archivedConversationResults.length > 0;
 
   // CLICK AWAY LISTENER FOR THREE-DOT MENU
   useEffect(() => {
@@ -236,8 +316,14 @@ export default function ChatHub() {
       try {
         const parsed = JSON.parse(stored) as Conversation[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setConversations(parsed);
-          setActiveConversationId(parsed[0].id);
+          const normalized = parsed.map((conversation) => ({
+            ...conversation,
+            archived: Boolean(conversation.archived),
+            folderId: conversation.folderId ?? null,
+          }));
+          const firstActiveConversation = normalized.find((conversation) => !conversation.archived) ?? normalized[0];
+          setConversations(normalized);
+          setActiveConversationId(firstActiveConversation.id);
           setHasLoadedLocalState(true);
           return;
         }
@@ -252,6 +338,70 @@ export default function ChatHub() {
   }, []);
 
   useEffect(() => {
+    const storedFolders = window.localStorage.getItem(FOLDERS_STORAGE_KEY);
+    if (!storedFolders) {
+      setFolders([createDefaultFolder()]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(storedFolders) as ChatFolder[];
+      if (Array.isArray(parsed)) {
+        const normalizedFolders =
+          parsed
+            .filter((folder) => folder && typeof folder.name === 'string')
+            .map((folder) => ({
+              id: folder.id,
+              name: folder.name,
+              createdAt: folder.createdAt ?? new Date().toISOString(),
+              collapsed: Boolean(folder.collapsed),
+            }));
+        const hasMainFolder = normalizedFolders.some(
+          (folder) => folder.name.trim().toLowerCase() === DEFAULT_FOLDER_NAME.toLowerCase()
+        );
+
+        setFolders(hasMainFolder ? normalizedFolders : [createDefaultFolder(), ...normalizedFolders]);
+      }
+    } catch (storageError) {
+      console.error('Failed to parse saved folders:', storageError);
+      setFolders([createDefaultFolder()]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedTakenCourses = window.localStorage.getItem(TAKEN_COURSES_STORAGE_KEY);
+    if (!storedTakenCourses) return;
+
+    try {
+      const parsed = JSON.parse(storedTakenCourses) as TakenCourse[];
+      if (Array.isArray(parsed)) {
+        setTakenCourses(
+          mergeTakenCourses(
+            [],
+            parsed.filter((course) => course && typeof course.code === 'string')
+          )
+        );
+      }
+    } catch (storageError) {
+      console.error('Failed to parse saved taken courses:', storageError);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedDebateThreads = window.localStorage.getItem(DEBATE_THREADS_STORAGE_KEY);
+    if (!storedDebateThreads) return;
+
+    try {
+      const parsed = JSON.parse(storedDebateThreads) as Record<string, DebateThreadView>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        setDebateThreads(parsed);
+      }
+    } catch (storageError) {
+      console.error('Failed to parse saved debate threads:', storageError);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!hasLoadedLocalState) return;
     if (conversations.length === 0) {
       window.localStorage.removeItem(STORAGE_KEY);
@@ -259,6 +409,21 @@ export default function ChatHub() {
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations, hasLoadedLocalState]);
+
+  useEffect(() => {
+    if (!hasLoadedLocalState) return;
+    window.localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(folders));
+  }, [folders, hasLoadedLocalState]);
+
+  useEffect(() => {
+    if (!hasLoadedLocalState) return;
+    window.localStorage.setItem(TAKEN_COURSES_STORAGE_KEY, JSON.stringify(takenCourses));
+  }, [takenCourses, hasLoadedLocalState]);
+
+  useEffect(() => {
+    if (!hasLoadedLocalState) return;
+    window.localStorage.setItem(DEBATE_THREADS_STORAGE_KEY, JSON.stringify(debateThreads));
+  }, [debateThreads, hasLoadedLocalState]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -340,6 +505,175 @@ export default function ChatHub() {
     setMenuOpenId(null);
   };
 
+  const selectFirstAvailableConversation = (excludedId?: string) => {
+    const nextConversation = conversations.find(
+      (conversation) => conversation.id !== excludedId && !conversation.archived
+    );
+
+    if (nextConversation) {
+      setActiveConversationId(nextConversation.id);
+      return;
+    }
+
+    const freshConversation = createUntitledConversation();
+    setConversations((current) => [freshConversation, ...current]);
+    setActiveConversationId(freshConversation.id);
+  };
+
+  const handleCreateFolder = (initialName?: string) => {
+    const folderName = (initialName ?? window.prompt('Folder name') ?? '').trim();
+    if (!folderName) return null;
+
+    const newFolder: ChatFolder = {
+      id: createId('folder'),
+      name: folderName,
+      createdAt: new Date().toISOString(),
+      collapsed: false,
+    };
+
+    setFolders((current) => [...current, newFolder]);
+    return newFolder;
+  };
+
+  const handleRenameFolder = (folderId: string) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+
+    const nextName = window.prompt('Rename folder', folder.name)?.trim();
+    if (!nextName) return;
+
+    setFolders((current) =>
+      current.map((item) => (item.id === folderId ? { ...item, name: nextName } : item))
+    );
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+
+    const shouldDelete = window.confirm(
+      `Delete "${folder.name}"? Chats in this folder will move back to Recent History.`
+    );
+    if (!shouldDelete) return;
+
+    setFolders((current) => current.filter((item) => item.id !== folderId));
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.folderId === folderId ? { ...conversation, folderId: null } : conversation
+      )
+    );
+  };
+
+  const toggleFolderCollapsed = (folderId: string) => {
+    setFolders((current) =>
+      current.map((folder) =>
+        folder.id === folderId ? { ...folder, collapsed: !folder.collapsed } : folder
+      )
+    );
+  };
+
+  const moveConversationToFolder = (conversationId: string, folderId: string | null) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? {
+              ...conversation,
+              archived: false,
+              folderId,
+              updatedAt: new Date().toISOString(),
+            }
+          : conversation
+      )
+    );
+    setMenuOpenId(null);
+  };
+
+  const handleMoveConversationPrompt = (conversationId: string) => {
+    if (folders.length === 0) {
+      const createdFolder = handleCreateFolder();
+      if (createdFolder) {
+        moveConversationToFolder(conversationId, createdFolder.id);
+      }
+      return;
+    }
+
+    const folderList = folders.map((folder, index) => `${index + 1}. ${folder.name}`).join('\n');
+    const choice = window.prompt(
+      `Move to folder:\n0. Recent History\n${folderList}\n\nType a number, or type "new: Folder Name" to create one.`
+    )?.trim();
+    if (!choice) return;
+
+    if (choice.toLowerCase().startsWith('new:')) {
+      const createdFolder = handleCreateFolder(choice.slice(4).trim());
+      if (createdFolder) {
+        moveConversationToFolder(conversationId, createdFolder.id);
+      }
+      return;
+    }
+
+    if (choice === '0') {
+      moveConversationToFolder(conversationId, null);
+      return;
+    }
+
+    const selectedIndex = Number(choice) - 1;
+    const selectedFolder = folders[selectedIndex];
+    if (selectedFolder) {
+      moveConversationToFolder(conversationId, selectedFolder.id);
+    }
+  };
+
+  const handleArchiveConversation = (conversationId: string) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, archived: true, folderId: null, updatedAt: new Date().toISOString() }
+          : conversation
+      )
+    );
+
+    if (activeConversationId === conversationId) {
+      selectFirstAvailableConversation(conversationId);
+    }
+    setSidebarTab('archived');
+    setMenuOpenId(null);
+  };
+
+  const handleUnarchiveConversation = (conversationId: string) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, archived: false, folderId: null, updatedAt: new Date().toISOString() }
+          : conversation
+      )
+    );
+    setSidebarTab('chats');
+    setMenuOpenId(null);
+  };
+
+  const handleDragStart = (e: React.DragEvent, conversationId: string) => {
+    e.dataTransfer.setData('text/plain', conversationId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDropConversation = (e: React.DragEvent, folderId: string | null) => {
+    e.preventDefault();
+    const conversationId = e.dataTransfer.getData('text/plain');
+    if (!conversationId) return;
+    moveConversationToFolder(conversationId, folderId);
+  };
+
+  const handleDropArchive = (e: React.DragEvent) => {
+    e.preventDefault();
+    const conversationId = e.dataTransfer.getData('text/plain');
+    if (!conversationId) return;
+    handleArchiveConversation(conversationId);
+  };
+
+  const handleForgetTakenCourse = (courseCode: string) => {
+    setTakenCourses((current) => current.filter((course) => course.code !== courseCode));
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
@@ -374,6 +708,15 @@ export default function ChatHub() {
     setThinkingMessageIndex(0);
     setLoadingTitle(rutgersLoadingState?.title ?? null);
     setLoadingDetail(rutgersLoadingState?.detail ?? null);
+    const newlyTakenCourses = extractRutgersTakenCourses(trimmedInput);
+    const nextTakenCourses =
+      newlyTakenCourses.length > 0
+        ? mergeTakenCourses(takenCourses, newlyTakenCourses)
+        : takenCourses;
+
+    if (newlyTakenCourses.length > 0) {
+      setTakenCourses(nextTakenCourses);
+    }
 
     try {
       const response = await fetch('/api/chat', {
@@ -386,20 +729,37 @@ export default function ChatHub() {
           modelId: selectedModelId,
           stepByStepMode,
           userName,
+          takenCourses: nextTakenCourses,
+          debateMode,
+          debateModelIds,
+          debateDepth,
         }),
       });
 
       const data = await response.json();
       if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
 
+      const returnedDebateThread = data.debateThread as DebateThreadView | null | undefined;
+      if (returnedDebateThread) {
+        setDebateThreads((current) => ({
+          ...current,
+          [returnedDebateThread.id]: returnedDebateThread,
+        }));
+        setActiveDebateThreadId(returnedDebateThread.id);
+        setIsDebatePanelOpen(true);
+      }
+
       const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
       const assistantMessage: Message = {
         role: 'assistant',
-        content: data.content,
+        content: returnedDebateThread
+          ? `Debate started: ${returnedDebateThread.originalQuestion}`
+          : data.content,
         durationMs: data.durationMs,
         modelId: data.modelId ?? assistantModel.id,
-        modelLabel: data.modelLabel ?? assistantModel.label,
+        modelLabel: returnedDebateThread ? 'Debate Mode' : data.modelLabel ?? assistantModel.label,
         modelDescription: data.modelDescription ?? assistantModel.description,
+        debateThreadId: returnedDebateThread?.id,
       };
 
       setConversations((current) =>
@@ -433,6 +793,154 @@ export default function ChatHub() {
     }
   };
 
+  const handleDebateFollowUp = async (message: string) => {
+    if (!activeDebateThread || isDebateFollowUpSending) return;
+
+    setIsDebateFollowUpSending(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          modelId: selectedModelId,
+          debateFollowUp: true,
+          debateThread: activeDebateThread,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.debateThread) {
+        throw new Error(data.error || 'Scarlet AI could not continue the debate.');
+      }
+
+      const updatedThread = data.debateThread as DebateThreadView;
+      setDebateThreads((current) => ({
+        ...current,
+        [updatedThread.id]: updatedThread,
+      }));
+      setActiveDebateThreadId(updatedThread.id);
+      setIsDebatePanelOpen(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to continue the debate.');
+    } finally {
+      setIsDebateFollowUpSending(false);
+    }
+  };
+
+  const renderConversationCard = (
+    result: ConversationSearchResult,
+    options: { archived?: boolean } = {}
+  ) => {
+    const { conversation, preview, matchType } = result;
+
+    return (
+      <div
+        key={conversation.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, conversation.id)}
+        className={`rounded-xl border transition-all relative ${
+          conversation.id === activeConversationId
+            ? 'bg-[var(--surface-soft)] border-scarlet/20 shadow-[0_8px_18px_rgba(15,23,42,0.06)]'
+            : 'bg-transparent border-transparent hover:bg-[var(--surface-soft)] hover:border-[var(--card-border)] hover:shadow-[0_6px_14px_rgba(15,23,42,0.04)]'
+        }`}
+      >
+        <div className="flex items-start gap-3 px-3 py-3 group">
+          <button
+            onClick={() => handleSelectConversation(conversation.id)}
+            className="min-w-0 flex-1 text-left"
+          >
+            {editingId === conversation.id ? (
+              <input
+                autoFocus
+                className="w-full bg-transparent border-b border-scarlet outline-none text-sm font-semibold text-[var(--text-primary)]"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onBlur={() => handleUpdateTitle(conversation.id)}
+                onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle(conversation.id)}
+              />
+            ) : (
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">
+                  {conversation.title}
+                </p>
+                {normalizedSearchQuery ? (
+                  <div className="mt-1">
+                    <p className="text-[10px] text-scarlet font-black uppercase tracking-widest">
+                      {matchType === 'title' ? 'Title' : 'Conversation'}
+                    </p>
+                    <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">
+                      {preview}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">
+                    {preview}
+                  </p>
+                )}
+              </div>
+            )}
+          </button>
+
+          <button
+            aria-label={`More options for ${conversation.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id);
+            }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          </button>
+
+          {menuOpenId === conversation.id && (
+            <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-44 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
+              <button
+                onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }}
+                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Rename
+              </button>
+              <button
+                onClick={() => handleMoveConversationPrompt(conversation.id)}
+                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h4"/></svg>
+                Move to folder
+              </button>
+              {options.archived ? (
+                <button
+                  onClick={() => handleUnarchiveConversation(conversation.id)}
+                  className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 12 11 15 14"/><path d="M12 11v8"/><path d="M20.5 10.5V20a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-9.5"/><path d="M2 6h20l-2 4H4z"/></svg>
+                  Unarchive
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleArchiveConversation(conversation.id)}
+                  className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                  Archive
+                </button>
+              )}
+              <button
+                onClick={() => handleDeleteConversation(conversation.id)}
+                className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-[rgba(204,0,51,0.08)] flex items-center gap-3"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
       
@@ -457,109 +965,136 @@ export default function ChatHub() {
                     + New Chat
                 </button>
 
-                {/* SEARCH MECHANISM */}
                 <div className="relative mb-6">
-                   <div className={`flex items-center transition-all duration-300 bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 ${isSearchExpanded ? 'w-full shadow-sm ring-1 ring-[#cc0033]/20' : 'w-10'} shadow-[0_6px_16px_rgba(15,23,42,0.04)]`}>
-                      <button onClick={() => setIsSearchExpanded(!isSearchExpanded)} className="p-1 text-[var(--text-muted)] hover:text-[#cc0033]">
+                   <div className="flex items-center bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 w-full shadow-[0_6px_16px_rgba(15,23,42,0.04)] focus-within:shadow-sm focus-within:ring-1 focus-within:ring-[#cc0033]/20">
+                      <span className="p-1 text-[var(--text-muted)]">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      </button>
-                      {isSearchExpanded && (
-                        <input 
-                          autoFocus
-                          placeholder="Search chats..."
-                          className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                      )}
+                      </span>
+                      <input
+                        placeholder="Search chats..."
+                        className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
                    </div>
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-hidden">
-                    <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)] mb-4 px-2">
-                        Recent History
-                    </p>
+                    <div className="mb-3 flex items-center gap-2 rounded-xl bg-[var(--surface-muted)] p-1">
+                        <button
+                            onClick={() => setSidebarTab('chats')}
+                            className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                sidebarTab === 'chats'
+                                    ? 'bg-[var(--card-bg)] text-scarlet shadow-sm'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                            }`}
+                        >
+                            Chats
+                        </button>
+                        <button
+                            onClick={() => setSidebarTab('archived')}
+                            className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                sidebarTab === 'archived'
+                                    ? 'bg-[var(--card-bg)] text-scarlet shadow-sm'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                            }`}
+                        >
+                            Archived
+                        </button>
+                    </div>
 
-                    <div className="h-[calc(100vh-380px)] overflow-y-auto pr-1 space-y-2 custom-scrollbar">
-                        {filteredConversations.length === 0 && (
-                            <div className="text-sm text-[var(--text-secondary)] italic px-2">No results found.</div>
-                        )}
-
-                        {filteredConversations.map(({ conversation, preview, matchType }) => (
-                            <div
-                                key={conversation.id}
-                                className={`rounded-xl border transition-all relative ${
-                                    conversation.id === activeConversationId
-                                        ? 'bg-[var(--surface-soft)] border-scarlet/20 shadow-[0_8px_18px_rgba(15,23,42,0.06)]'
-                                        : 'bg-transparent border-transparent hover:bg-[var(--surface-soft)] hover:border-[var(--card-border)] hover:shadow-[0_6px_14px_rgba(15,23,42,0.04)]'
-                                }`}
+                    <div className="mb-3 flex items-center justify-between px-2">
+                        <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)]">
+                            {sidebarTab === 'chats' ? 'Folders' : 'Archived Chats'}
+                        </p>
+                        {sidebarTab === 'chats' && (
+                            <button
+                                aria-label="Create folder"
+                                title="Create folder"
+                                onClick={() => handleCreateFolder()}
+                                className="opacity-60 hover:opacity-100 rounded-lg p-1 text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)] transition-all"
                             >
-                                <div className="flex items-start gap-3 px-3 py-3 group">
-                                    <button
-                                        onClick={() => handleSelectConversation(conversation.id)}
-                                        className="min-w-0 flex-1 text-left"
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="h-[calc(100vh-430px)] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+                        {sidebarTab === 'chats' ? (
+                            <>
+                                {!hasVisibleChats && (
+                                    <div className="text-sm text-[var(--text-secondary)] italic px-2">No results found.</div>
+                                )}
+
+                                <section
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => handleDropConversation(e, null)}
+                                    className="space-y-2"
+                                >
+                                    <p className="px-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+                                        Recent History
+                                    </p>
+                                    {recentConversationResults.map((result) => renderConversationCard(result))}
+                                </section>
+
+                                {folderConversationResults.map(({ folder, results }) => (
+                                    <section
+                                        key={folder.id}
+                                        onDragOver={(e) => e.preventDefault()}
+                                        onDrop={(e) => handleDropConversation(e, folder.id)}
+                                        className="rounded-xl border border-transparent hover:border-[var(--card-border)]"
                                     >
-                                        {editingId === conversation.id ? (
-                                            <input 
-                                                autoFocus
-                                                className="w-full bg-transparent border-b border-scarlet outline-none text-sm font-semibold text-[var(--text-primary)]"
-                                                value={editTitle}
-                                                onChange={(e) => setEditTitle(e.target.value)}
-                                                onBlur={() => handleUpdateTitle(conversation.id)}
-                                                onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle(conversation.id)}
-                                            />
-                                        ) : (
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">
-                                                    {conversation.title}
-                                                </p>
-                                                {normalizedSearchQuery ? (
-                                                    <div className="mt-1">
-                                                        <p className="text-[10px] text-scarlet font-black uppercase tracking-widest">
-                                                            {matchType === 'title' ? 'Title' : 'Conversation'}
-                                                        </p>
-                                                        <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">
-                                                            {preview}
-                                                        </p>
-                                                    </div>
+                                        <div className="group flex items-center gap-2 px-2 py-1.5">
+                                            <button
+                                                onClick={() => toggleFolderCollapsed(folder.id)}
+                                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                            >
+                                                <svg className={`transition-transform ${folder.collapsed ? '-rotate-90' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                                <span className="truncate">{folder.name}</span>
+                                                <span className="text-[9px] opacity-60">{results.length}</span>
+                                            </button>
+                                            <button
+                                                aria-label={`Rename ${folder.name}`}
+                                                onClick={() => handleRenameFolder(folder.id)}
+                                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)]"
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                                            </button>
+                                            <button
+                                                aria-label={`Delete ${folder.name}`}
+                                                onClick={() => handleDeleteFolder(folder.id)}
+                                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-[rgba(204,0,51,0.08)]"
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                                            </button>
+                                        </div>
+                                        {!folder.collapsed && (
+                                            <div className="space-y-2">
+                                                {results.length > 0 ? (
+                                                    results.map((result) => renderConversationCard(result))
                                                 ) : (
-                                                    <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">
-                                                        {preview}
-                                                    </p>
+                                                    <p className="px-2 pb-2 text-[11px] italic text-[var(--text-muted)]">Drop chats here.</p>
                                                 )}
                                             </div>
                                         )}
-                                    </button>
-                                    
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id); }}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]"
-                                    >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                                    </button>
-
-                                    {/* Professional Menu Dropdown */}
-                                    {menuOpenId === conversation.id && (
-                                        <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-36 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
-                                            <button 
-                                                onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }}
-                                                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                                RENAME
-                                            </button>
-                                            <button 
-                                                onClick={() => handleDeleteConversation(conversation.id)}
-                                                className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-[rgba(204,0,51,0.08)] flex items-center gap-3"
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-                                                DELETE
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                                    </section>
+                                ))}
+                            </>
+                        ) : (
+                            <section
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={handleDropArchive}
+                                className="space-y-2"
+                            >
+                                {hasVisibleArchivedConversations ? (
+                                    archivedConversationResults.map((result) =>
+                                        renderConversationCard(result, { archived: true })
+                                    )
+                                ) : (
+                                    <p className="px-2 text-[11px] italic text-[var(--text-muted)]">No archived chats.</p>
+                                )}
+                            </section>
+                        )}
                     </div>
                 </div>
               </>
@@ -629,11 +1164,45 @@ export default function ChatHub() {
                 </div>
               )}
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  {msg.role === 'assistant' && (
+                    <div className="mb-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      <span>{msg.modelLabel ?? getChatModelOption(msg.modelId).label}</span>
+                      {typeof msg.durationMs === 'number' && (
+                        <span className="opacity-70">{Math.round(msg.durationMs / 1000)}s</span>
+                      )}
+                    </div>
+                  )}
                   <div
                     data-testid={msg.role === 'user' ? 'user-message' : 'assistant-message'}
                     className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}
                   >
-                  {msg.content}
+                  {msg.debateThreadId && debateThreads[msg.debateThreadId] ? (
+                    <div data-testid="debate-started-card" className="whitespace-normal">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-scarlet">
+                        Debate started
+                      </p>
+                      <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-primary)]">
+                        {debateThreads[msg.debateThreadId].originalQuestion}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-[var(--card-border)] bg-[var(--surface-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                          Context: {debateThreads[msg.debateThreadId].contextUsed}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDebateThreadId(msg.debateThreadId ?? null);
+                            setIsDebatePanelOpen(true);
+                          }}
+                          className="rounded-full bg-scarlet px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#990026]"
+                        >
+                          Open Debate
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               </div>
             </div>
@@ -712,6 +1281,7 @@ export default function ChatHub() {
                        </span>
                      </span>
                    </button>
+                   <DebateModeToggle enabled={debateMode} onChange={setDebateMode} />
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -739,6 +1309,14 @@ export default function ChatHub() {
                   </button>
                 </div>
               </div>
+              <ModelDebatePanel
+                enabled={debateMode}
+                models={CHAT_MODEL_OPTIONS}
+                selectedModelIds={debateModelIds}
+                debateDepth={debateDepth}
+                onChange={setDebateModelIds}
+                onDepthChange={setDebateDepth}
+              />
             </div>
             
             <div className="mt-4 flex flex-col items-center gap-1">
@@ -753,9 +1331,34 @@ export default function ChatHub() {
                    ? 'Step-by-Step Mode is on. Math requests will use DeepSeek R1.'
                    : 'Math questions can auto-switch to DeepSeek R1 for structured reasoning.'}
                </p>
+               {takenCourses.length > 0 && (
+                 <div className="mt-2 flex max-w-4xl flex-wrap items-center justify-center gap-2">
+                   <span className="text-[9px] font-black uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                     Remembered completed courses
+                   </span>
+                   {takenCourses.map((course) => (
+                     <button
+                       key={course.code}
+                       type="button"
+                       title={`Forget ${course.code}`}
+                       onClick={() => handleForgetTakenCourse(course.code)}
+                       className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[var(--text-secondary)] hover:border-scarlet hover:text-scarlet"
+                     >
+                       {course.code} x
+                     </button>
+                   ))}
+                 </div>
+               )}
             </div>
           </div>
         </div>
+        <DebateThreadPanel
+          thread={activeDebateThread}
+          open={isDebatePanelOpen}
+          isSending={isDebateFollowUpSending}
+          onClose={() => setIsDebatePanelOpen(false)}
+          onFollowUp={handleDebateFollowUp}
+        />
       </main>
     </div>
   );

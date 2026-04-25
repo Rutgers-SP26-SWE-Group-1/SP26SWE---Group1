@@ -1,628 +1,271 @@
-type RutgersCampusCode = 'NB' | 'NK' | 'CM';
+import { RUTGERS_COURSES, type RutgersCourse } from '@/data/rutgersCourses';
+import { RUTGERS_CS_CURRICULUM } from '@/data/rutgersCurriculum';
 
-type RutgersCourseQuery = {
-  campus: RutgersCampusCode;
-  dayFilter: string | null;
-  keywords: string[];
-  strictOpenOnly: boolean;
-};
-
-type RutgersCourseResult = {
-  course: string;
-  section: string;
-  time: string;
-  instructor: string;
-  status: string;
-  campus: string;
-};
-
-type RutgersWeatherQuery = {
-  campus: RutgersCampusCode;
-  timeframe: 'today' | 'tomorrow';
-};
-
-type RutgersWeatherResult = {
-  location: string;
-  temperature: string;
-  conditions: string;
-  suggestedClothing: string;
-};
-
-type RutgersToolRequest = {
-  needsCourse: boolean;
-  needsWeather: boolean;
-  needsClothing: boolean;
-  campus: RutgersCampusCode;
-  courseQuery: RutgersCourseQuery;
-  weatherQuery: RutgersWeatherQuery;
-};
-
-type RutgersToolResponse = {
-  courseResults: RutgersCourseResult[];
-  weatherResult: RutgersWeatherResult | null;
-  courseError: string | null;
-  weatherError: string | null;
-  formatted: string;
-};
-
-type RutgersCourseApiMeeting = {
-  campusName?: string;
-  meetingDay?: string;
-  startTime?: string;
-  endTime?: string;
-  pmCode?: string;
-};
-
-type RutgersCourseApiSection = {
-  number?: string;
-  index?: string;
-  instructorsText?: string;
-  openStatus?: boolean;
-  openStatusText?: string;
-  campusCode?: string;
-  sectionCampusLocations?: Array<{ description?: string }>;
-  meetingTimes?: RutgersCourseApiMeeting[];
-};
-
-type RutgersCourseApiCourse = {
-  courseString?: string;
-  courseNumber?: string;
+type TakenCourse = {
+  code: string;
   title?: string;
-  expandedTitle?: string;
-  subjectDescription?: string;
-  courseDescription?: string;
-  sections?: RutgersCourseApiSection[];
 };
 
-const CAMPUS_CONFIG: Record<RutgersCampusCode, { label: string; location: string; latitude: number; longitude: number }> = {
-  NB: {
-    label: 'New Brunswick',
-    location: 'New Brunswick, NJ',
-    latitude: 40.4862,
-    longitude: -74.4518,
-  },
-  NK: {
-    label: 'Newark',
-    location: 'Newark, NJ',
-    latitude: 40.7357,
-    longitude: -74.1724,
-  },
-  CM: {
-    label: 'Camden',
-    location: 'Camden, NJ',
-    latitude: 39.9429,
-    longitude: -75.1196,
-  },
-};
-
-const SUBJECT_ALIASES = [
-  { keywords: ['cs', 'computer science'], code: '198' },
-  { keywords: ['math', 'mathematics'], code: '640' },
-];
-
-const STOP_WORDS = new Set([
-  'a',
-  'about',
-  'and',
-  'are',
-  'at',
-  'available',
-  'class',
-  'classes',
-  'course',
-  'courses',
-  'find',
-  'for',
-  'if',
-  'in',
-  'intro',
-  'is',
-  'it',
-  'monday',
-  'of',
-  'on',
-  'open',
-  'rutgers',
-  'search',
-  'semester',
-  'tell',
-  'the',
-  'this',
-  'to',
-  'tomorrow',
-  'today',
-  'weather',
-  'what',
-]);
-
-const DAY_MAP: Record<string, string> = {
-  monday: 'M',
-  tuesday: 'T',
-  wednesday: 'W',
-  thursday: 'H',
-  friday: 'F',
-  saturday: 'S',
-  sunday: 'U',
-};
-
-const WEATHER_CODES: Record<number, string> = {
-  0: 'Clear skies',
-  1: 'Mostly clear',
-  2: 'Partly cloudy',
-  3: 'Overcast',
-  45: 'Foggy',
-  48: 'Icy fog',
-  51: 'Light drizzle',
-  53: 'Drizzle',
-  55: 'Heavy drizzle',
-  61: 'Light rain',
-  63: 'Rain',
-  65: 'Heavy rain',
-  71: 'Light snow',
-  73: 'Snow',
-  75: 'Heavy snow',
-  80: 'Rain showers',
-  81: 'Moderate rain showers',
-  82: 'Heavy rain showers',
-  95: 'Thunderstorms',
-};
+const COURSE_CODE_PATTERN = /\b\d{2}\s*:\s*\d{3}\s*:\s*\d{3}\b/g;
 
 function normalizeMessage(message: string) {
   return message.trim().toLowerCase();
 }
 
-function detectCampus(message: string): RutgersCampusCode {
-  const normalized = normalizeMessage(message);
-
-  if (normalized.includes('newark')) {
-    return 'NK';
-  }
-
-  if (normalized.includes('camden')) {
-    return 'CM';
-  }
-
-  return 'NB';
+function normalizeCourseCode(code: string) {
+  return code.replace(/\s*:\s*/g, ':').trim().toUpperCase();
 }
 
-function detectDayFilter(message: string) {
-  const normalized = normalizeMessage(message);
+export function extractRutgersCourseCodes(message: string) {
+  return Array.from(message.matchAll(COURSE_CODE_PATTERN)).map((match) =>
+    normalizeCourseCode(match[0])
+  );
+}
 
-  for (const [day, code] of Object.entries(DAY_MAP)) {
-    if (normalized.includes(day)) {
-      return code;
-    }
+function findLocalCourse(code: string) {
+  const normalizedCode = normalizeCourseCode(code);
+  return RUTGERS_COURSES.find((course) => course.code === normalizedCode) ?? null;
+}
+
+export function getLocalRutgersCoursesForQuestion(message: string) {
+  const requestedCodes = extractRutgersCourseCodes(message);
+
+  if (requestedCodes.length === 0) {
+    return null;
   }
 
-  return null;
-}
-
-function detectWeatherTimeframe(message: string): 'today' | 'tomorrow' {
-  return normalizeMessage(message).includes('tomorrow') ? 'tomorrow' : 'today';
-}
-
-function buildCourseKeywords(message: string) {
-  const normalized = normalizeMessage(message);
-  const tokens = normalized
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((token) => !STOP_WORDS.has(token));
-
-  const subjectCodes = SUBJECT_ALIASES
-    .filter((alias) => alias.keywords.some((keyword) => normalized.includes(keyword)))
-    .map((alias) => alias.code);
-
-  const keywords = Array.from(new Set(tokens));
+  const courses = requestedCodes.map(findLocalCourse);
+  const missingCodes = requestedCodes.filter((_, index) => courses[index] === null);
 
   return {
-    subjectCodes,
-    keywords,
+    requestedCodes,
+    missingCodes,
+    courses: courses.filter((course): course is RutgersCourse => course !== null),
   };
 }
 
-function getCurrentRutgersTerm() {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-
-  if (month >= 9) {
-    return { year: now.getFullYear(), term: 9 };
-  }
-
-  if (month >= 6) {
-    return { year: now.getFullYear(), term: 7 };
-  }
-
-  return { year: now.getFullYear(), term: 1 };
-}
-
-function toStandardTime(value?: string, pmCode?: string) {
-  if (!value || value.length !== 4) {
-    return 'TBA';
-  }
-
-  const hours = Number.parseInt(value.slice(0, 2), 10);
-  const minutes = value.slice(2);
-  const normalizedHours = hours % 12 || 12;
-  const suffix = pmCode === 'P' || hours >= 12 ? 'PM' : 'AM';
-
-  return `${normalizedHours}:${minutes} ${suffix}`;
-}
-
-function formatMeetingTimes(meetings: RutgersCourseApiMeeting[] | undefined, dayFilter: string | null) {
-  if (!meetings || meetings.length === 0) {
-    return 'Time TBA';
-  }
-
-  const filtered = dayFilter
-    ? meetings.filter((meeting) => meeting.meetingDay === dayFilter)
-    : meetings;
-
-  if (filtered.length === 0) {
-    return 'No meetings on requested day';
-  }
-
-  return filtered
-    .map((meeting) => {
-      const day = meeting.meetingDay ?? 'Day TBA';
-      const start = toStandardTime(meeting.startTime, meeting.pmCode);
-      const end = toStandardTime(meeting.endTime, meeting.pmCode);
-      const campus = meeting.campusName ? ` @ ${meeting.campusName}` : '';
-      return `${day} ${start} - ${end}${campus}`;
-    })
-    .join('; ');
-}
-
-function scoreCourse(course: RutgersCourseApiCourse, keywords: string[], subjectCodes: string[]) {
-  const haystack = [
-    course.title,
-    course.expandedTitle,
-    course.courseDescription,
-    course.subjectDescription,
-    course.courseString,
-    course.courseNumber,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  let score = 0;
-
-  for (const keyword of keywords) {
-    if (haystack.includes(keyword)) {
-      score += 2;
-    }
-  }
-
-  if (subjectCodes.length > 0 && subjectCodes.includes(course.courseString?.split(':')[1] ?? '')) {
-    score += 5;
-  }
-
-  if (haystack.includes('artificial intelligence') || haystack.includes('ai')) {
-    score += 2;
-  }
-
-  return score;
-}
-
-function buildClothingSuggestion(
-  temperatureCelsius: number,
-  conditions: string,
-  precipitationProbability = 0,
-  windKph = 0
-) {
-  const suggestions: string[] = [];
-
-  if (temperatureCelsius <= 5) {
-    suggestions.push('wear a warm coat');
-  } else if (temperatureCelsius <= 12) {
-    suggestions.push('bring a jacket');
-  } else if (temperatureCelsius >= 26) {
-    suggestions.push('wear light clothes');
-  } else {
-    suggestions.push('dress in light layers');
-  }
-
-  if (precipitationProbability >= 35 || conditions.toLowerCase().includes('rain')) {
-    suggestions.push('pack an umbrella or rain jacket');
-  }
-
-  if (windKph >= 20) {
-    suggestions.push('add an extra layer for the wind');
-  }
-
-  if (temperatureCelsius >= 24) {
-    suggestions.push('bring water and sunscreen');
-  }
-
-  return suggestions.join('; ');
-}
-
-function formatCourseSection(course: RutgersCourseApiCourse, section: RutgersCourseApiSection, dayFilter: string | null): RutgersCourseResult {
-  const primaryCampus =
-    section.sectionCampusLocations?.[0]?.description ??
-    section.meetingTimes?.[0]?.campusName ??
-    CAMPUS_CONFIG[section.campusCode as RutgersCampusCode]?.label ??
-    'Campus TBA';
-
-  return {
-    course: `${course.courseString ?? 'Course'} ${course.title ?? ''}`.trim(),
-    section: `${section.number ?? 'TBA'}${section.index ? ` (Index ${section.index})` : ''}`,
-    time: formatMeetingTimes(section.meetingTimes, dayFilter),
-    instructor: section.instructorsText || 'Instructor TBA',
-    status: section.openStatusText || (section.openStatus ? 'OPEN' : 'CLOSED'),
-    campus: primaryCampus,
-  };
-}
-
-export function detectRutgersToolRequest(message: string): RutgersToolRequest {
+function isCourseQuestion(message: string) {
   const normalized = normalizeMessage(message);
-  const needsCourse =
-    normalized.includes('rutgers') &&
-    (normalized.includes('course') ||
-      normalized.includes('courses') ||
-      normalized.includes('class') ||
-      normalized.includes('classes') ||
-      normalized.includes('section') ||
-      normalized.includes('semester') ||
-      normalized.includes('open') ||
-      normalized.includes('available'));
-  const needsWeather =
-    normalized.includes('weather') ||
-    normalized.includes('forecast') ||
-    normalized.includes('temperature') ||
-    normalized.includes('wear') ||
-    normalized.includes('cold') ||
-    normalized.includes('hot') ||
-    normalized.includes('rain') ||
-    normalized.includes('windy') ||
-    normalized.includes('tomorrow') ||
-    normalized.includes('today');
-  const needsClothing =
-    normalized.includes('wear') || normalized.includes('clothing');
-  const campus = detectCampus(message);
-  const { keywords } = buildCourseKeywords(message);
+  return (
+    extractRutgersCourseCodes(message).length > 0 ||
+    normalized.includes('rutgers course') ||
+    normalized.includes('cs course') ||
+    normalized.includes('computer science course')
+  );
+}
 
-  return {
-    needsCourse,
-    needsWeather,
-    needsClothing,
-    campus,
-    courseQuery: {
-      campus,
-      dayFilter: detectDayFilter(message),
-      keywords,
-      strictOpenOnly:
-        normalized.includes('find open') || normalized.includes('available'),
-    },
-    weatherQuery: {
-      campus,
-      timeframe: detectWeatherTimeframe(message),
-    },
-  };
+export function extractRutgersTakenCourses(message: string): TakenCourse[] {
+  const normalized = normalizeMessage(message);
+  const hasCompletedLanguage =
+    normalized.includes('took') ||
+    normalized.includes('taken') ||
+    normalized.includes('completed') ||
+    normalized.includes('finished') ||
+    normalized.includes('passed');
+
+  if (!hasCompletedLanguage) {
+    return [];
+  }
+
+  return extractRutgersCourseCodes(message).map((code) => ({ code }));
 }
 
 export function getRutgersLoadingState(message: string) {
-  const request = detectRutgersToolRequest(message);
-
-  if (request.needsCourse && request.needsWeather) {
+  if (detectScheduleIntent(message)) {
     return {
-      title: 'Gathering Rutgers courses and weather...',
-      detail: 'Checking live course availability and forecast data.',
+      title: 'Checking Rutgers Schedule of Classes...',
+      detail: 'Using SOC data for sections, instructors, times, and availability.',
     };
   }
 
-  if (request.needsCourse) {
-    return {
-      title: 'Searching Rutgers courses...',
-      detail: 'Looking up live section availability and meeting times.',
-    };
+  if (!isCourseQuestion(message) && !detectRutgersSchedulePlanningRequest(message)) {
+    return null;
   }
-
-  if (request.needsWeather) {
-    return {
-      title: 'Checking Rutgers weather...',
-      detail: 'Pulling the latest forecast and clothing advice.',
-    };
-  }
-
-  return null;
-}
-
-async function fetchRutgersCourses(query: RutgersCourseQuery) {
-  const { year, term } = getCurrentRutgersTerm();
-  const url = `https://classes.rutgers.edu/soc/api/courses.json?year=${year}&term=${term}&campus=${query.campus}`;
-  const response = await fetch(url, {
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!response.ok) {
-    throw new Error('Rutgers course data is unavailable right now.');
-  }
-
-  const courses = (await response.json()) as RutgersCourseApiCourse[];
-  const { subjectCodes } = buildCourseKeywords(query.keywords.join(' '));
-  const effectiveSubjectCodes = subjectCodes.length > 0 ? subjectCodes : [];
-  const effectiveKeywords = query.keywords;
-
-  const matchedCourses = courses
-    .map((course) => ({
-      course,
-      score: scoreCourse(course, effectiveKeywords, effectiveSubjectCodes),
-    }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
-
-  const sections = matchedCourses
-    .flatMap(({ course }) =>
-      (course.sections ?? [])
-        .filter((section) => !query.strictOpenOnly || section.openStatus === true)
-        .filter((section) =>
-          query.dayFilter
-            ? (section.meetingTimes ?? []).some((meeting) => meeting.meetingDay === query.dayFilter)
-            : true
-        )
-        .map((section) => formatCourseSection(course, section, query.dayFilter))
-    )
-    .slice(0, 5);
-
-  return sections;
-}
-
-async function fetchRutgersWeather(query: RutgersWeatherQuery): Promise<RutgersWeatherResult> {
-  const campus = CAMPUS_CONFIG[query.campus];
-  const response = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${campus.latitude}&longitude=${campus.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=America%2FNew_York&forecast_days=2`,
-    {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10000),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error('Weather data is unavailable.');
-  }
-
-  const data = await response.json() as {
-    current?: { temperature_2m: number; weather_code: number; wind_speed_10m: number };
-    daily?: {
-      time: string[];
-      temperature_2m_max: number[];
-      temperature_2m_min: number[];
-      weather_code: number[];
-      precipitation_probability_max: number[];
-    };
-  };
-
-  const forecastIndex = query.timeframe === 'tomorrow' ? 1 : 0;
-  const dailyWeatherCode = data.daily?.weather_code?.[forecastIndex] ?? data.current?.weather_code ?? 0;
-  const dailyMax = data.daily?.temperature_2m_max?.[forecastIndex];
-  const dailyMin = data.daily?.temperature_2m_min?.[forecastIndex];
-  const precipitationProbability = data.daily?.precipitation_probability_max?.[forecastIndex] ?? 0;
-  const currentTemperature = data.current?.temperature_2m ?? dailyMax ?? 0;
-  const conditions = WEATHER_CODES[dailyWeatherCode] ?? 'Conditions unavailable';
-  const clothing = buildClothingSuggestion(
-    query.timeframe === 'tomorrow' && typeof dailyMin === 'number'
-      ? (Number(dailyMax ?? currentTemperature) + Number(dailyMin)) / 2
-      : currentTemperature,
-    conditions,
-    precipitationProbability,
-    data.current?.wind_speed_10m ?? 0
-  );
-
-  const temperature =
-    query.timeframe === 'tomorrow' && typeof dailyMax === 'number' && typeof dailyMin === 'number'
-      ? `High ${Math.round((dailyMax * 9) / 5 + 32)}°F / Low ${Math.round((dailyMin * 9) / 5 + 32)}°F`
-      : `${Math.round((currentTemperature * 9) / 5 + 32)}°F`;
 
   return {
-    location: campus.location,
-    temperature,
-    conditions,
-    suggestedClothing: clothing,
+    title: 'Checking local Rutgers data...',
+    detail: 'Using verified local course and curriculum records.',
   };
 }
 
-function formatCourseResults(courseResults: RutgersCourseResult[], error: string | null) {
-  if (error) {
-    return ['Rutgers Course Results:', `- ${error}`].join('\n');
-  }
+export function detectRutgersSchedulePlanningRequest(message: string) {
+  const normalized = normalizeMessage(message);
+  return (
+    normalized.includes('schedule') ||
+    normalized.includes('plan my classes') ||
+    normalized.includes('plan courses') ||
+    normalized.includes('what should i take') ||
+    normalized.includes('next semester')
+  );
+}
 
-  if (courseResults.length === 0) {
-    return ['Rutgers Course Results:', '- No matching Rutgers courses were found.'].join('\n');
-  }
+export function detectScheduleIntent(message: string) {
+  const normalized = normalizeMessage(message);
+  return (
+    normalized.includes('who teaches') ||
+    normalized.includes('instructor') ||
+    normalized.includes('professor') ||
+    normalized.includes('teaching') ||
+    normalized.includes('this semester') ||
+    normalized.includes('fall') ||
+    normalized.includes('spring') ||
+    normalized.includes('summer') ||
+    normalized.includes('section') ||
+    normalized.includes('time') ||
+    normalized.includes('availability') ||
+    normalized.includes('open') ||
+    normalized.includes('closed')
+  );
+}
 
+function formatCourse(course: RutgersCourse) {
   return [
-    'Rutgers Course Results:',
-    ...courseResults.flatMap((result) => [
-      `- Course: ${result.course}`,
-      `- Section: ${result.section}`,
-      `- Time: ${result.time}`,
-      `- Instructor: ${result.instructor}`,
-      `- Status: ${result.status}`,
-      `- Campus: ${result.campus}`,
+    `Course: ${course.code} ${course.title}`,
+    `What it is: ${course.description}`,
+    `Who should take it: ${course.whoShouldTake}`,
+    `Difficulty: ${course.difficulty}`,
+    course.sequenceFit ? `Where it fits: ${course.sequenceFit}` : '',
+    course.nextCourses?.length ? `Defined next course: ${course.nextCourses.join(', ')}` : '',
+    course.recommendation ? `Recommendation: ${course.recommendation}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function formatVerifiedCourseFacts(courses: RutgersCourse[]) {
+  return [
+    'Verified facts:',
+    ...courses.flatMap((course) => [
+      `Course code: ${course.code}`,
+      `Title: ${course.title}`,
+      course.school ? `School: ${course.school}` : '',
+      course.credits ? `Credits: ${course.credits}` : '',
+      course.nextCourses?.length ? `Verified next course: ${course.nextCourses.join(', ')}` : '',
       '',
     ]),
   ]
+    .filter((line) => line !== '')
     .join('\n')
     .trim();
 }
 
-function formatWeatherResult(weatherResult: RutgersWeatherResult | null, error: string | null) {
-  if (error || !weatherResult) {
-    return ['Rutgers Weather:', `- ${error || 'Weather data is unavailable.'}`].join('\n');
+export function formatCourseContextForModel(courses: RutgersCourse[]) {
+  return courses
+    .map((course) =>
+      [
+        `Course code: ${course.code}`,
+        `Title: ${course.title}`,
+        course.school ? `School: ${course.school}` : '',
+        course.credits ? `Credits: ${course.credits}` : '',
+        `Description: ${course.description}`,
+        `Who should take it: ${course.whoShouldTake}`,
+        `Difficulty: ${course.difficulty}`,
+        course.sequenceFit ? `Sequence fit: ${course.sequenceFit}` : '',
+        course.nextCourses?.length ? `Verified next courses: ${course.nextCourses.join(', ')}` : '',
+        course.recommendation ? `Recommendation note: ${course.recommendation}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    )
+    .join('\n\n');
+}
+
+function formatCourseComparison(courses: RutgersCourse[]) {
+  if (courses.length === 0) {
+    return 'I do not have verified data for that course yet.';
   }
 
   return [
-    'Rutgers Weather:',
-    `- Location: ${weatherResult.location}`,
-    `- Temperature: ${weatherResult.temperature}`,
-    `- Conditions: ${weatherResult.conditions}`,
-    `- Suggested clothing: ${weatherResult.suggestedClothing}`,
+    'Course comparison:',
+    ...courses.flatMap((course) => [
+      '',
+      `${course.code} ${course.title}`,
+      `Difficulty: ${course.difficulty}`,
+      `Best fit: ${course.whoShouldTake}`,
+      course.sequenceFit ? `Sequence: ${course.sequenceFit}` : '',
+      course.nextCourses?.length ? `Defined next course: ${course.nextCourses.join(', ')}` : '',
+    ]),
   ].join('\n');
 }
 
-function buildRecommendation(courseResults: RutgersCourseResult[], weatherResult: RutgersWeatherResult | null, needsClothing: boolean) {
-  const pieces: string[] = [];
+export function answerLocalRutgersCourseQuestion(message: string) {
+  const requestedCodes = extractRutgersCourseCodes(message);
 
-  if (courseResults.length > 0) {
-    pieces.push('Check the open section details and register quickly if a seat fits your schedule.');
+  if (requestedCodes.length === 0) {
+    return null;
   }
 
-  if (weatherResult) {
-    pieces.push(weatherResult.suggestedClothing);
+  const courses = requestedCodes.map(findLocalCourse);
+
+  if (courses.some((course) => course === null)) {
+    return 'I do not have verified data for that course yet.';
   }
 
-  if (needsClothing && !weatherResult) {
-    pieces.push('Weather data is unavailable, so check the forecast again before you head out.');
+  const verifiedCourses = courses.filter((course): course is RutgersCourse => course !== null);
+
+  if (verifiedCourses.length > 1) {
+    return formatCourseComparison(verifiedCourses);
   }
 
-  return pieces.join(' ');
+  return formatCourse(verifiedCourses[0]);
 }
 
-export async function handleRutgersCourseWeatherRequest(message: string): Promise<RutgersToolResponse> {
-  const request = detectRutgersToolRequest(message);
-  const coursePromise = request.needsCourse
-    ? fetchRutgersCourses(request.courseQuery)
-    : Promise.resolve([]);
-  const weatherPromise = request.needsWeather
-    ? fetchRutgersWeather(request.weatherQuery)
-    : Promise.resolve(null);
+export function answerLocalRutgersCurriculumQuestion(message: string, takenCourses: TakenCourse[] = []) {
+  const normalized = normalizeMessage(message);
+  const isCurriculumQuestion =
+    normalized.includes('curriculum') ||
+    normalized.includes('degree') ||
+    normalized.includes('requirement') ||
+    normalized.includes('requirements') ||
+    normalized.includes('required courses') ||
+    normalized.includes('need to take');
 
-  const [courseResult, weatherResult] = await Promise.allSettled([coursePromise, weatherPromise]);
-
-  const courseResults = courseResult.status === 'fulfilled' ? courseResult.value : [];
-  const weather = weatherResult.status === 'fulfilled' ? weatherResult.value : null;
-  const courseError =
-    request.needsCourse && courseResult.status === 'rejected'
-      ? 'Rutgers course data is unavailable right now.'
-      : null;
-  const weatherError =
-    request.needsWeather && weatherResult.status === 'rejected'
-      ? 'Weather data is unavailable.'
-      : null;
-
-  const sections: string[] = [];
-
-  if (request.needsCourse) {
-    sections.push(formatCourseResults(courseResults, courseError));
+  if (!isCurriculumQuestion) {
+    return null;
   }
 
-  if (request.needsWeather) {
-    sections.push(formatWeatherResult(weather, weatherError));
+  const takenCodes = new Set(takenCourses.map((course) => normalizeCourseCode(course.code)));
+  const remaining = RUTGERS_CS_CURRICULUM.filter((item) => !takenCodes.has(item.code));
+
+  return [
+    'Rutgers CS curriculum guide:',
+    'This is a local verified planning dataset. Confirm your official requirements with Degree Navigator or an academic advisor.',
+    '',
+    'Still to plan:',
+    ...remaining.map((item) => `${item.code} ${item.title} - ${item.area}`),
+  ].join('\n');
+}
+
+export async function handleRutgersSchedulePlanningRequest(
+  message: string,
+  takenCourses: TakenCourse[] = []
+) {
+  const curriculumAnswer = answerLocalRutgersCurriculumQuestion(message, takenCourses);
+
+  if (curriculumAnswer) {
+    return curriculumAnswer;
   }
 
-  if (request.needsCourse && request.needsWeather) {
-    sections.push(`Recommendation:\n${buildRecommendation(courseResults, weather, request.needsClothing) || 'Review the live results above before you head out.'}`);
+  const requestedCodes = extractRutgersCourseCodes(message);
+
+  if (requestedCodes.length > 0) {
+    return answerLocalRutgersCourseQuestion(message);
   }
 
+  return [
+    'I can help plan from the local Rutgers curriculum dataset.',
+    'Tell me which verified course codes you have completed, such as 01:198:111 and 01:198:112.',
+  ].join('\n');
+}
+
+export async function handleRutgersCourseWeatherRequest(message: string) {
   return {
-    courseResults,
-    weatherResult: weather,
-    courseError,
-    weatherError,
-    formatted: sections.join('\n\n'),
+    courseResults: [],
+    weatherResult: null,
+    courseError: null,
+    weatherError: null,
+    formatted:
+      answerLocalRutgersCourseQuestion(message) ??
+      'I do not have verified data for that course yet.',
   };
 }
