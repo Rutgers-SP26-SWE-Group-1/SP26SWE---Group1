@@ -20,6 +20,13 @@ type Message = {
   modelLabel?: string;
   modelDescription?: string;
   debateThreadId?: string;
+  comparisonResponses?: {
+    modelId: string;
+    modelLabel: string;
+    content: string;
+    durationMs: number;
+    status: string;
+  }[];
 };
 
 type Conversation = {
@@ -30,6 +37,7 @@ type Conversation = {
   messages: Message[];
   archived?: boolean;
   folderId?: string | null;
+  isPinned?: boolean;
 };
 
 type ConversationSearchResult = {
@@ -78,6 +86,7 @@ function createUntitledConversation(): Conversation {
     messages: [],
     archived: false,
     folderId: null,
+    isPinned: false,
   };
 }
 
@@ -91,7 +100,6 @@ function createDefaultFolder(): ChatFolder {
 }
 
 function deriveTitle(message: string) {
-  // Respecting case sensitivity as requested
   return message.trim().split(/\s+/).slice(0, 6).join(' ').slice(0, 48) || 'New chat';
 }
 
@@ -113,6 +121,12 @@ function buildSearchPreview(text: string, query: string, maxLength = 80) {
   return `${prefix}${excerpt}${suffix}`;
 }
 
+const StarIcon = ({ filled = false }: { filled?: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" className="text-scarlet">
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+  </svg>
+);
+
 export default function ChatHub() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [folders, setFolders] = useState<ChatFolder[]>([]);
@@ -125,7 +139,12 @@ export default function ChatHub() {
   const [userMajor, setUserMajor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedLocalState, setHasLoadedLocalState] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_CHAT_MODEL.id);
+  
+  // MULTI-MODEL STATES
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_CHAT_MODEL.id]);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+
+  // TEAMMATE TOOL STATES
   const [debateMode, setDebateMode] = useState(false);
   const [debateModelIds, setDebateModelIds] = useState<string[]>(['mistral', 'gemma']);
   const [debateDepth, setDebateDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
@@ -145,30 +164,32 @@ export default function ChatHub() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [folderMenuOpenId, setFolderMenuOpenId] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'chats' | 'archived'>('chats');
-  
   const [searchQuery, setSearchQuery] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sidebarMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const activeConversation =
-    conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
   const activeDebateThread = activeDebateThreadId ? debateThreads[activeDebateThreadId] ?? null : null;
   const profileHref = userEmail ? '/profile' : '/login';
 
+  const toggleModelSelection = (id: string) => {
+    setSelectedModelIds(prev => prev.includes(id) ? (prev.length > 1 ? prev.filter(m => m !== id) : prev) : [...prev, id]);
+  };
+
   const mergeTakenCourses = (currentCourses: TakenCourse[], newCourses: TakenCourse[]) => {
     const courseMap = new Map<string, TakenCourse>();
-
     for (const course of currentCourses) {
       courseMap.set(course.code.toUpperCase(), { ...course, code: course.code.toUpperCase() });
     }
-
     for (const course of newCourses) {
       courseMap.set(course.code.toUpperCase(), { ...course, code: course.code.toUpperCase() });
     }
-
     return Array.from(courseMap.values()).sort((a, b) => a.code.localeCompare(b.code));
   };
 
@@ -179,18 +200,13 @@ export default function ChatHub() {
     if (!normalizedSearchQuery) {
       return {
         conversation,
-        preview: new Date(conversation.updatedAt).toLocaleString([], {
-          dateStyle: 'short',
-          timeStyle: 'short',
-        }),
+        preview: new Date(conversation.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
         matchType: 'title' as const,
         rank: 0,
       };
     }
-
     const normalizedTitle = conversation.title.toLowerCase();
     const titleIndex = normalizedTitle.indexOf(normalizedSearchQuery);
-
     if (titleIndex !== -1) {
       return {
         conversation,
@@ -199,42 +215,31 @@ export default function ChatHub() {
         rank: titleIndex,
       };
     }
-
-    const matchingMessage = conversation.messages.find((message) =>
-      message.content.toLowerCase().includes(normalizedSearchQuery)
-    );
-
-    if (!matchingMessage) {
-      return null;
-    }
-
-    const messageIndex = matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery);
-
+    const matchingMessage = conversation.messages.find((message) => message.content.toLowerCase().includes(normalizedSearchQuery));
+    if (!matchingMessage) return null;
     return {
       conversation,
       preview: buildSearchPreview(matchingMessage.content, normalizedSearchQuery),
       matchType: 'message' as const,
-      rank: messageIndex + 1000,
+      rank: matchingMessage.content.toLowerCase().indexOf(normalizedSearchQuery) + 1000,
     };
   };
 
   const filteredConversations: ConversationSearchResult[] = conversations
-    .map((conversation) => {
-      return getSearchResult(conversation);
-    })
+    .map((conversation) => getSearchResult(conversation))
     .filter((result): result is ConversationSearchResult => result !== null)
     .sort((a, b) => {
+      // Pins always float to top
+      if (a.conversation.isPinned && !b.conversation.isPinned) return -1;
+      if (!a.conversation.isPinned && b.conversation.isPinned) return 1;
+
       if (normalizedSearchQuery && a.matchType !== b.matchType) {
         return a.matchType === 'title' ? -1 : 1;
       }
-
       if (normalizedSearchQuery && a.rank !== b.rank) {
         return a.rank - b.rank;
       }
-
-      return (
-        new Date(b.conversation.updatedAt).getTime() - new Date(a.conversation.updatedAt).getTime()
-      );
+      return new Date(b.conversation.updatedAt).getTime() - new Date(a.conversation.updatedAt).getTime();
     });
 
   const recentConversationResults = filteredConversations.filter(
@@ -249,16 +254,18 @@ export default function ChatHub() {
       ({ conversation }) => !conversation.archived && conversation.folderId === folder.id
     ),
   }));
-  const hasVisibleChats =
-    recentConversationResults.length > 0 ||
-    folderConversationResults.some(({ results }) => results.length > 0);
+  const hasVisibleChats = recentConversationResults.length > 0 || folderConversationResults.some(({ results }) => results.length > 0);
   const hasVisibleArchivedConversations = archivedConversationResults.length > 0;
 
-  // CLICK AWAY LISTENER FOR THREE-DOT MENU
+  // CLICK AWAY LISTENERS
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (sidebarMenuRef.current && !sidebarMenuRef.current.contains(event.target as Node)) {
         setMenuOpenId(null);
+        setFolderMenuOpenId(null);
+      }
+      if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
+        setIsModelMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -268,43 +275,20 @@ export default function ChatHub() {
   useEffect(() => {
     const getUser = async () => {
       if (!supabase) {
-        setUserEmail(null);
-        setUserName('Guest User');
-        setUserMajor('Guest');
-        return;
+        setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest'); return;
       }
-
       try {
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
-
-        if (error) {
-          throw error;
-        }
-
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error) throw error;
         if (user) {
           setUserEmail(user.email ?? null);
           setUserName(user.user_metadata?.full_name || 'Scarlet Knight');
           setUserMajor(user.user_metadata?.major || 'Student');
         } else {
-          setUserEmail(null);
-          setUserName('Guest User');
-          setUserMajor('Guest');
+          setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest');
         }
       } catch (authError) {
-        console.error('Unable to load Supabase user on chat page:', authError);
-        setUserEmail(null);
-        setUserName('Guest User');
-        setUserMajor('Guest');
-        setError(SUPABASE_ERROR_MESSAGE);
-
-        try {
-          await supabase.auth.signOut({ scope: 'local' });
-        } catch (signOutError) {
-          console.error('Unable to clear local Supabase session:', signOutError);
-        }
+        setUserEmail(null); setUserName('Guest User'); setUserMajor('Guest'); setError(SUPABASE_ERROR_MESSAGE);
       }
     };
     getUser();
@@ -320,6 +304,7 @@ export default function ChatHub() {
             ...conversation,
             archived: Boolean(conversation.archived),
             folderId: conversation.folderId ?? null,
+            isPinned: Boolean(conversation.isPinned)
           }));
           const firstActiveConversation = normalized.find((conversation) => !conversation.archived) ?? normalized[0];
           setConversations(normalized);
@@ -343,23 +328,16 @@ export default function ChatHub() {
       setFolders([createDefaultFolder()]);
       return;
     }
-
     try {
       const parsed = JSON.parse(storedFolders) as ChatFolder[];
       if (Array.isArray(parsed)) {
-        const normalizedFolders =
-          parsed
-            .filter((folder) => folder && typeof folder.name === 'string')
-            .map((folder) => ({
+        const normalizedFolders = parsed.filter((folder) => folder && typeof folder.name === 'string').map((folder) => ({
               id: folder.id,
               name: folder.name,
               createdAt: folder.createdAt ?? new Date().toISOString(),
               collapsed: Boolean(folder.collapsed),
             }));
-        const hasMainFolder = normalizedFolders.some(
-          (folder) => folder.name.trim().toLowerCase() === DEFAULT_FOLDER_NAME.toLowerCase()
-        );
-
+        const hasMainFolder = normalizedFolders.some((folder) => folder.name.trim().toLowerCase() === DEFAULT_FOLDER_NAME.toLowerCase());
         setFolders(hasMainFolder ? normalizedFolders : [createDefaultFolder(), ...normalizedFolders]);
       }
     } catch (storageError) {
@@ -371,59 +349,34 @@ export default function ChatHub() {
   useEffect(() => {
     const storedTakenCourses = window.localStorage.getItem(TAKEN_COURSES_STORAGE_KEY);
     if (!storedTakenCourses) return;
-
     try {
       const parsed = JSON.parse(storedTakenCourses) as TakenCourse[];
       if (Array.isArray(parsed)) {
-        setTakenCourses(
-          mergeTakenCourses(
-            [],
-            parsed.filter((course) => course && typeof course.code === 'string')
-          )
-        );
+        setTakenCourses(mergeTakenCourses([], parsed.filter((course) => course && typeof course.code === 'string')));
       }
-    } catch (storageError) {
-      console.error('Failed to parse saved taken courses:', storageError);
-    }
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
     const storedDebateThreads = window.localStorage.getItem(DEBATE_THREADS_STORAGE_KEY);
     if (!storedDebateThreads) return;
-
     try {
       const parsed = JSON.parse(storedDebateThreads) as Record<string, DebateThreadView>;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         setDebateThreads(parsed);
       }
-    } catch (storageError) {
-      console.error('Failed to parse saved debate threads:', storageError);
-    }
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
     if (!hasLoadedLocalState) return;
-    if (conversations.length === 0) {
-      window.localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
+    if (conversations.length === 0) { window.localStorage.removeItem(STORAGE_KEY); return; }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations, hasLoadedLocalState]);
 
-  useEffect(() => {
-    if (!hasLoadedLocalState) return;
-    window.localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(folders));
-  }, [folders, hasLoadedLocalState]);
-
-  useEffect(() => {
-    if (!hasLoadedLocalState) return;
-    window.localStorage.setItem(TAKEN_COURSES_STORAGE_KEY, JSON.stringify(takenCourses));
-  }, [takenCourses, hasLoadedLocalState]);
-
-  useEffect(() => {
-    if (!hasLoadedLocalState) return;
-    window.localStorage.setItem(DEBATE_THREADS_STORAGE_KEY, JSON.stringify(debateThreads));
-  }, [debateThreads, hasLoadedLocalState]);
+  useEffect(() => { if (hasLoadedLocalState) window.localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(folders)); }, [folders, hasLoadedLocalState]);
+  useEffect(() => { if (hasLoadedLocalState) window.localStorage.setItem(TAKEN_COURSES_STORAGE_KEY, JSON.stringify(takenCourses)); }, [takenCourses, hasLoadedLocalState]);
+  useEffect(() => { if (hasLoadedLocalState) window.localStorage.setItem(DEBATE_THREADS_STORAGE_KEY, JSON.stringify(debateThreads)); }, [debateThreads, hasLoadedLocalState]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -444,11 +397,9 @@ export default function ChatHub() {
       setThinkingMessageIndex(0);
       return;
     }
-
     const intervalId = window.setInterval(() => {
       setThinkingMessageIndex((current) => (current + 1) % STEP_BY_STEP_THINKING_MESSAGES.length);
     }, 900);
-
     return () => window.clearInterval(intervalId);
   }, [isGenerating, isStepByStepRequest]);
 
@@ -469,14 +420,14 @@ export default function ChatHub() {
   };
 
   const handleUpdateTitle = (id: string) => {
-    if (!editTitle.trim()) {
-      setEditingId(null);
-      return;
-    }
-    setConversations(prev => prev.map(c => 
-      c.id === id ? { ...c, title: editTitle, updatedAt: new Date().toISOString() } : c
-    ));
+    if (!editTitle.trim()) { setEditingId(null); return; }
+    setConversations(prev => prev.map(c => c.id === id ? { ...c, title: editTitle, updatedAt: new Date().toISOString() } : c));
     setEditingId(null);
+  };
+
+  const handleTogglePin = (id: string) => {
+    setConversations(prev => prev.map(c => c.id === id ? { ...c, isPinned: !c.isPinned, updatedAt: new Date().toISOString() } : c));
+    setMenuOpenId(null);
   };
 
   const handleDeleteConversation = (conversationId: string) => {
@@ -506,15 +457,8 @@ export default function ChatHub() {
   };
 
   const selectFirstAvailableConversation = (excludedId?: string) => {
-    const nextConversation = conversations.find(
-      (conversation) => conversation.id !== excludedId && !conversation.archived
-    );
-
-    if (nextConversation) {
-      setActiveConversationId(nextConversation.id);
-      return;
-    }
-
+    const nextConversation = conversations.find((conversation) => conversation.id !== excludedId && !conversation.archived);
+    if (nextConversation) { setActiveConversationId(nextConversation.id); return; }
     const freshConversation = createUntitledConversation();
     setConversations((current) => [freshConversation, ...current]);
     setActiveConversationId(freshConversation.id);
@@ -523,14 +467,7 @@ export default function ChatHub() {
   const handleCreateFolder = (initialName?: string) => {
     const folderName = (initialName ?? window.prompt('Folder name') ?? '').trim();
     if (!folderName) return null;
-
-    const newFolder: ChatFolder = {
-      id: createId('folder'),
-      name: folderName,
-      createdAt: new Date().toISOString(),
-      collapsed: false,
-    };
-
+    const newFolder: ChatFolder = { id: createId('folder'), name: folderName, createdAt: new Date().toISOString(), collapsed: false };
     setFolders((current) => [...current, newFolder]);
     return newFolder;
   };
@@ -538,115 +475,40 @@ export default function ChatHub() {
   const handleRenameFolder = (folderId: string) => {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
-
     const nextName = window.prompt('Rename folder', folder.name)?.trim();
     if (!nextName) return;
-
-    setFolders((current) =>
-      current.map((item) => (item.id === folderId ? { ...item, name: nextName } : item))
-    );
+    setFolders((current) => current.map((item) => (item.id === folderId ? { ...item, name: nextName } : item)));
   };
 
   const handleDeleteFolder = (folderId: string) => {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
-
-    const shouldDelete = window.confirm(
-      `Delete "${folder.name}"? Chats in this folder will move back to Recent History.`
-    );
+    const shouldDelete = window.confirm(`Delete "${folder.name}"? Chats in this folder will move back to Recent History.`);
     if (!shouldDelete) return;
-
     setFolders((current) => current.filter((item) => item.id !== folderId));
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.folderId === folderId ? { ...conversation, folderId: null } : conversation
-      )
-    );
+    setConversations((current) => current.map((conversation) => conversation.folderId === folderId ? { ...conversation, folderId: null } : conversation));
   };
 
   const toggleFolderCollapsed = (folderId: string) => {
-    setFolders((current) =>
-      current.map((folder) =>
-        folder.id === folderId ? { ...folder, collapsed: !folder.collapsed } : folder
-      )
-    );
+    setFolders((current) => current.map((folder) => folder.id === folderId ? { ...folder, collapsed: !folder.collapsed } : folder));
   };
 
   const moveConversationToFolder = (conversationId: string, folderId: string | null) => {
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? {
-              ...conversation,
-              archived: false,
-              folderId,
-              updatedAt: new Date().toISOString(),
-            }
-          : conversation
-      )
-    );
+    setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, archived: false, folderId, updatedAt: new Date().toISOString() } : conversation));
     setMenuOpenId(null);
-  };
-
-  const handleMoveConversationPrompt = (conversationId: string) => {
-    if (folders.length === 0) {
-      const createdFolder = handleCreateFolder();
-      if (createdFolder) {
-        moveConversationToFolder(conversationId, createdFolder.id);
-      }
-      return;
-    }
-
-    const folderList = folders.map((folder, index) => `${index + 1}. ${folder.name}`).join('\n');
-    const choice = window.prompt(
-      `Move to folder:\n0. Recent History\n${folderList}\n\nType a number, or type "new: Folder Name" to create one.`
-    )?.trim();
-    if (!choice) return;
-
-    if (choice.toLowerCase().startsWith('new:')) {
-      const createdFolder = handleCreateFolder(choice.slice(4).trim());
-      if (createdFolder) {
-        moveConversationToFolder(conversationId, createdFolder.id);
-      }
-      return;
-    }
-
-    if (choice === '0') {
-      moveConversationToFolder(conversationId, null);
-      return;
-    }
-
-    const selectedIndex = Number(choice) - 1;
-    const selectedFolder = folders[selectedIndex];
-    if (selectedFolder) {
-      moveConversationToFolder(conversationId, selectedFolder.id);
-    }
+    setFolderMenuOpenId(null);
   };
 
   const handleArchiveConversation = (conversationId: string) => {
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, archived: true, folderId: null, updatedAt: new Date().toISOString() }
-          : conversation
-      )
-    );
-
-    if (activeConversationId === conversationId) {
-      selectFirstAvailableConversation(conversationId);
-    }
+    // FIX: Archiving no longer wipes folderId!
+    setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, archived: true, updatedAt: new Date().toISOString() } : conversation));
+    if (activeConversationId === conversationId) selectFirstAvailableConversation(conversationId);
     setSidebarTab('archived');
     setMenuOpenId(null);
   };
 
   const handleUnarchiveConversation = (conversationId: string) => {
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, archived: false, folderId: null, updatedAt: new Date().toISOString() }
-          : conversation
-      )
-    );
+    setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, archived: false, updatedAt: new Date().toISOString() } : conversation));
     setSidebarTab('chats');
     setMenuOpenId(null);
   };
@@ -688,35 +550,26 @@ export default function ChatHub() {
     };
 
     setConversations((current) =>
-      current
-        .map((conversation) => conversation.id === activeConversation.id ? updatedConversation : conversation)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      current.map((conversation) => conversation.id === activeConversation.id ? updatedConversation : conversation).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     );
     setInput('');
     setError(null);
     setIsGenerating(true);
 
     const mathRequestDetected = detectMathReasoningRequest(trimmedInput, stepByStepMode);
-    const resolvedModelId = resolveChatModelId(selectedModelId, {
-      stepByStepMode,
-      isMathRequest: mathRequestDetected,
-    });
+    const resolvedModelId = resolveChatModelId(selectedModelIds[0], { stepByStepMode, isMathRequest: mathRequestDetected });
     const usesStepByStepFlow = stepByStepMode || mathRequestDetected;
     const rutgersLoadingState = getRutgersLoadingState(trimmedInput);
+    
     setActiveThinkingModelId(resolvedModelId);
     setIsStepByStepRequest(usesStepByStepFlow);
     setThinkingMessageIndex(0);
     setLoadingTitle(rutgersLoadingState?.title ?? null);
     setLoadingDetail(rutgersLoadingState?.detail ?? null);
+    
     const newlyTakenCourses = extractRutgersTakenCourses(trimmedInput);
-    const nextTakenCourses =
-      newlyTakenCourses.length > 0
-        ? mergeTakenCourses(takenCourses, newlyTakenCourses)
-        : takenCourses;
-
-    if (newlyTakenCourses.length > 0) {
-      setTakenCourses(nextTakenCourses);
-    }
+    const nextTakenCourses = newlyTakenCourses.length > 0 ? mergeTakenCourses(takenCourses, newlyTakenCourses) : takenCourses;
+    if (newlyTakenCourses.length > 0) setTakenCourses(nextTakenCourses);
 
     try {
       const response = await fetch('/api/chat', {
@@ -726,7 +579,7 @@ export default function ChatHub() {
           message: trimmedInput,
           conversationId: activeConversation.id,
           messages: updatedConversation.messages,
-          modelId: selectedModelId,
+          modelIds: selectedModelIds, // Multi-LLM Array
           stepByStepMode,
           userName,
           takenCourses: nextTakenCourses,
@@ -737,28 +590,20 @@ export default function ChatHub() {
       });
 
       const data = await response.json();
-      if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+      if (!response.ok || (!data.content && !data.responses)) throw new Error(data.error || 'Scarlet AI could not generate a response.');
 
       const returnedDebateThread = data.debateThread as DebateThreadView | null | undefined;
       if (returnedDebateThread) {
-        setDebateThreads((current) => ({
-          ...current,
-          [returnedDebateThread.id]: returnedDebateThread,
-        }));
+        setDebateThreads((current) => ({ ...current, [returnedDebateThread.id]: returnedDebateThread }));
         setActiveDebateThreadId(returnedDebateThread.id);
         setIsDebatePanelOpen(true);
       }
 
-      const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
+      // Multi-LLM Parsing
       const assistantMessage: Message = {
         role: 'assistant',
-        content: returnedDebateThread
-          ? `Debate started: ${returnedDebateThread.originalQuestion}`
-          : data.content,
-        durationMs: data.durationMs,
-        modelId: data.modelId ?? assistantModel.id,
-        modelLabel: returnedDebateThread ? 'Debate Mode' : data.modelLabel ?? assistantModel.label,
-        modelDescription: data.modelDescription ?? assistantModel.description,
+        content: returnedDebateThread ? `Debate started: ${returnedDebateThread.originalQuestion}` : data.content || '',
+        comparisonResponses: data.responses,
         debateThreadId: returnedDebateThread?.id,
       };
 
@@ -805,21 +650,16 @@ export default function ChatHub() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          modelId: selectedModelId,
+          modelIds: selectedModelIds,
           debateFollowUp: true,
           debateThread: activeDebateThread,
         }),
       });
       const data = await response.json();
-      if (!response.ok || !data.debateThread) {
-        throw new Error(data.error || 'Scarlet AI could not continue the debate.');
-      }
+      if (!response.ok || !data.debateThread) throw new Error(data.error || 'Scarlet AI could not continue the debate.');
 
       const updatedThread = data.debateThread as DebateThreadView;
-      setDebateThreads((current) => ({
-        ...current,
-        [updatedThread.id]: updatedThread,
-      }));
+      setDebateThreads((current) => ({ ...current, [updatedThread.id]: updatedThread }));
       setActiveDebateThreadId(updatedThread.id);
       setIsDebatePanelOpen(true);
     } catch (requestError) {
@@ -829,10 +669,7 @@ export default function ChatHub() {
     }
   };
 
-  const renderConversationCard = (
-    result: ConversationSearchResult,
-    options: { archived?: boolean } = {}
-  ) => {
+  const renderConversationCard = (result: ConversationSearchResult, options: { archived?: boolean } = {}) => {
     const { conversation, preview, matchType } = result;
 
     return (
@@ -847,93 +684,63 @@ export default function ChatHub() {
         }`}
       >
         <div className="flex items-start gap-3 px-3 py-3 group">
-          <button
-            onClick={() => handleSelectConversation(conversation.id)}
-            className="min-w-0 flex-1 text-left"
-          >
+          <button onClick={() => handleSelectConversation(conversation.id)} className="min-w-0 flex-1 text-left flex items-start gap-2">
+            {/* PIN ICON RESTORED */}
+            {conversation.isPinned && <div className="mt-1"><StarIcon filled /></div>}
+            
             {editingId === conversation.id ? (
-              <input
-                autoFocus
-                className="w-full bg-transparent border-b border-scarlet outline-none text-sm font-semibold text-[var(--text-primary)]"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onBlur={() => handleUpdateTitle(conversation.id)}
-                onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle(conversation.id)}
-              />
+              <input autoFocus className="w-full bg-transparent border-b border-scarlet outline-none text-sm font-semibold text-[var(--text-primary)]" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={() => handleUpdateTitle(conversation.id)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle(conversation.id)} />
             ) : (
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">
-                  {conversation.title}
-                </p>
+                <p className="text-sm font-semibold text-[var(--text-primary)] line-clamp-2">{conversation.title}</p>
                 {normalizedSearchQuery ? (
                   <div className="mt-1">
-                    <p className="text-[10px] text-scarlet font-black uppercase tracking-widest">
-                      {matchType === 'title' ? 'Title' : 'Conversation'}
-                    </p>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">
-                      {preview}
-                    </p>
+                    <p className="text-[10px] text-scarlet font-black uppercase tracking-widest">{matchType === 'title' ? 'Title' : 'Conversation'}</p>
+                    <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">{preview}</p>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">
-                    {preview}
-                  </p>
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1 font-bold uppercase">{preview}</p>
                 )}
               </div>
             )}
           </button>
 
-          <button
-            aria-label={`More options for ${conversation.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id);
-            }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]"
-          >
+          <button aria-label={`More options for ${conversation.title}`} onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === conversation.id ? null : conversation.id); setFolderMenuOpenId(null); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[var(--card-bg)] rounded text-[var(--text-muted)]">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
 
-          {menuOpenId === conversation.id && (
+          {/* NO MORE WINDOW.PROMPT - BEAUTIFUL INLINE FOLDER MENU */}
+          {folderMenuOpenId === conversation.id && (
+              <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-56 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-2xl z-[60] py-3 px-3 animate-in fade-in slide-in-from-top-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2 px-1">Move to Folder</p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                    <button onClick={() => moveConversationToFolder(conversation.id, null)} className="w-full text-left px-2 py-1.5 text-xs font-bold hover:bg-[var(--surface-soft)] rounded-md text-[var(--text-secondary)] italic">Remove from folder</button>
+                    {folders.map(f => (
+                        <button key={f.id} onClick={() => moveConversationToFolder(conversation.id, f.id)} className="w-full text-left px-2 py-1.5 text-xs font-bold hover:bg-[var(--surface-soft)] rounded-md truncate text-[var(--text-primary)] flex items-center justify-between">
+                          {f.name}
+                          {conversation.folderId === f.id && <div className="w-1.5 h-1.5 rounded-full bg-scarlet" />}
+                        </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-[var(--card-border)] flex gap-2">
+                      <input autoFocus placeholder="New folder..." className="flex-1 min-w-0 bg-[var(--surface-soft)] border border-[var(--input-border)] outline-none rounded-lg px-3 py-1.5 text-xs font-bold focus:border-scarlet transition-colors" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && newFolderName.trim()) { const newF = handleCreateFolder(newFolderName); if (newF) moveConversationToFolder(conversation.id, newF.id); setNewFolderName(''); } }} />
+                      <button onClick={() => { if(newFolderName.trim()) { const newF = handleCreateFolder(newFolderName); if (newF) moveConversationToFolder(conversation.id, newF.id); setNewFolderName(''); } }} disabled={!newFolderName.trim()} className="bg-[var(--text-primary)] text-[var(--card-bg)] px-3 rounded-lg font-black text-xs hover:opacity-80 disabled:opacity-30">+</button>
+                  </div>
+              </div>
+          )}
+
+          {/* MAIN 3-DOT MENU */}
+          {menuOpenId === conversation.id && !folderMenuOpenId && (
             <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-44 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-[60] py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
-              <button
-                onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }}
-                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Rename
-              </button>
-              <button
-                onClick={() => handleMoveConversationPrompt(conversation.id)}
-                className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h4"/></svg>
-                Move to folder
-              </button>
+              <button onClick={() => { setEditingId(conversation.id); setEditTitle(conversation.title); setMenuOpenId(null); }} className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Rename</button>
+              <button onClick={() => handleTogglePin(conversation.id)} className="w-full text-left px-4 py-2 text-xs font-black hover:bg-[var(--surface-soft)] flex items-center gap-3 text-scarlet"><StarIcon filled={conversation.isPinned} />{conversation.isPinned ? 'Unpin' : 'Pin to Top'}</button>
+              <button onClick={(e) => { e.stopPropagation(); setFolderMenuOpenId(conversation.id); setMenuOpenId(null); }} className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h4"/></svg>Move to folder</button>
               {options.archived ? (
-                <button
-                  onClick={() => handleUnarchiveConversation(conversation.id)}
-                  className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 12 11 15 14"/><path d="M12 11v8"/><path d="M20.5 10.5V20a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-9.5"/><path d="M2 6h20l-2 4H4z"/></svg>
-                  Unarchive
-                </button>
+                <button onClick={() => handleUnarchiveConversation(conversation.id)} className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 14 12 11 15 14"/><path d="M12 11v8"/><path d="M20.5 10.5V20a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-9.5"/><path d="M2 6h20l-2 4H4z"/></svg>Unarchive</button>
               ) : (
-                <button
-                  onClick={() => handleArchiveConversation(conversation.id)}
-                  className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-                  Archive
-                </button>
+                <button onClick={() => handleArchiveConversation(conversation.id)} className="w-full text-left px-4 py-2 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>Archive</button>
               )}
-              <button
-                onClick={() => handleDeleteConversation(conversation.id)}
-                className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-[rgba(204,0,51,0.08)] flex items-center gap-3"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-                Delete
-              </button>
+              <button onClick={() => handleDeleteConversation(conversation.id)} className="w-full text-left px-4 py-2 text-xs font-black text-red-400 hover:bg-[rgba(204,0,51,0.08)] flex items-center gap-3"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete</button>
             </div>
           )}
         </div>
@@ -943,156 +750,68 @@ export default function ChatHub() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)] text-[var(--text-primary)] transition-colors">
-      
       {/* SIDEBAR */}
       <aside className={`h-screen bg-[var(--sidebar-bg)] border-r border-[var(--card-border)] shadow-[6px_0_24px_rgba(15,23,42,0.05)] flex flex-col p-4 relative z-50 overflow-hidden transition-all duration-300 ${isSidebarOpen ? 'w-80' : 'w-20 items-center'}`}>
         <div className={isSidebarOpen ? "w-72" : "w-12 flex flex-col items-center"}>
           <Link href="/" className="flex items-center gap-2 mb-8 hover:opacity-80 transition-opacity">
             <Image src="/overlayicon.png" alt="Logo" width={32} height={32} />
-            {isSidebarOpen && (
-                <span className="font-black text-xl tracking-tight uppercase">
-                    SCARLET <span className="text-scarlet">AI</span>
-                </span>
-            )}
+            {isSidebarOpen && <span className="font-black text-xl tracking-tight uppercase">SCARLET <span className="text-scarlet">AI</span></span>}
           </Link>
 
           {isSidebarOpen && (
               <>
-                <button
-                    onClick={handleNewChat}
-                    className="w-full py-3 mb-4 border-2 border-dashed border-[var(--input-border)] rounded-xl text-[var(--text-secondary)] font-bold hover:border-scarlet hover:text-scarlet transition-all"
-                >
-                    + New Chat
-                </button>
+                <button onClick={handleNewChat} className="w-full py-3 mb-4 border-2 border-dashed border-[var(--input-border)] rounded-xl text-[var(--text-secondary)] font-bold hover:border-scarlet hover:text-scarlet transition-all">+ New Chat</button>
 
                 <div className="relative mb-6">
                    <div className="flex items-center bg-[var(--surface-soft)] border border-[var(--input-border)] rounded-xl px-3 w-full shadow-[0_6px_16px_rgba(15,23,42,0.04)] focus-within:shadow-sm focus-within:ring-1 focus-within:ring-[#cc0033]/20">
-                      <span className="p-1 text-[var(--text-muted)]">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      </span>
-                      <input
-                        placeholder="Search chats..."
-                        className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                      />
+                      <span className="p-1 text-[var(--text-muted)]"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+                      <input placeholder="Search chats..." className="bg-transparent border-none outline-none text-xs font-bold w-full ml-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--input-placeholder)]" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                    </div>
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-hidden">
                     <div className="mb-3 flex items-center gap-2 rounded-xl bg-[var(--surface-muted)] p-1">
-                        <button
-                            onClick={() => setSidebarTab('chats')}
-                            className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                sidebarTab === 'chats'
-                                    ? 'bg-[var(--card-bg)] text-scarlet shadow-sm'
-                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                            }`}
-                        >
-                            Chats
-                        </button>
-                        <button
-                            onClick={() => setSidebarTab('archived')}
-                            className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                sidebarTab === 'archived'
-                                    ? 'bg-[var(--card-bg)] text-scarlet shadow-sm'
-                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                            }`}
-                        >
-                            Archived
-                        </button>
+                        <button onClick={() => setSidebarTab('chats')} className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${sidebarTab === 'chats' ? 'bg-[var(--card-bg)] text-scarlet shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>Chats</button>
+                        <button onClick={() => setSidebarTab('archived')} className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${sidebarTab === 'archived' ? 'bg-[var(--card-bg)] text-scarlet shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>Archived</button>
                     </div>
 
                     <div className="mb-3 flex items-center justify-between px-2">
-                        <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)]">
-                            {sidebarTab === 'chats' ? 'Folders' : 'Archived Chats'}
-                        </p>
-                        {sidebarTab === 'chats' && (
-                            <button
-                                aria-label="Create folder"
-                                title="Create folder"
-                                onClick={() => handleCreateFolder()}
-                                className="opacity-60 hover:opacity-100 rounded-lg p-1 text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)] transition-all"
-                            >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                            </button>
-                        )}
+                        <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)]">{sidebarTab === 'chats' ? 'Folders' : 'Archived Chats'}</p>
+                        {sidebarTab === 'chats' && <button aria-label="Create folder" title="Create folder" onClick={() => handleCreateFolder()} className="opacity-60 hover:opacity-100 rounded-lg p-1 text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)] transition-all"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>}
                     </div>
 
                     <div className="h-[calc(100vh-430px)] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
                         {sidebarTab === 'chats' ? (
                             <>
-                                {!hasVisibleChats && (
-                                    <div className="text-sm text-[var(--text-secondary)] italic px-2">No results found.</div>
-                                )}
+                                {!hasVisibleChats && <div className="text-sm text-[var(--text-secondary)] italic px-2">No results found.</div>}
 
-                                <section
-                                    onDragOver={(e) => e.preventDefault()}
-                                    onDrop={(e) => handleDropConversation(e, null)}
-                                    className="space-y-2"
-                                >
-                                    <p className="px-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
-                                        Recent History
-                                    </p>
+                                <section onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropConversation(e, null)} className="space-y-2">
+                                    <p className="px-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Recent History</p>
                                     {recentConversationResults.map((result) => renderConversationCard(result))}
                                 </section>
 
                                 {folderConversationResults.map(({ folder, results }) => (
-                                    <section
-                                        key={folder.id}
-                                        onDragOver={(e) => e.preventDefault()}
-                                        onDrop={(e) => handleDropConversation(e, folder.id)}
-                                        className="rounded-xl border border-transparent hover:border-[var(--card-border)]"
-                                    >
+                                    <section key={folder.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropConversation(e, folder.id)} className="rounded-xl border border-transparent hover:border-[var(--card-border)]">
                                         <div className="group flex items-center gap-2 px-2 py-1.5">
-                                            <button
-                                                onClick={() => toggleFolderCollapsed(folder.id)}
-                                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                            >
+                                            <button onClick={() => toggleFolderCollapsed(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)]">
                                                 <svg className={`transition-transform ${folder.collapsed ? '-rotate-90' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                                                 <span className="truncate">{folder.name}</span>
                                                 <span className="text-[9px] opacity-60">{results.length}</span>
                                             </button>
-                                            <button
-                                                aria-label={`Rename ${folder.name}`}
-                                                onClick={() => handleRenameFolder(folder.id)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)]"
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-                                            </button>
-                                            <button
-                                                aria-label={`Delete ${folder.name}`}
-                                                onClick={() => handleDeleteFolder(folder.id)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-[rgba(204,0,51,0.08)]"
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                                            </button>
+                                            <button aria-label={`Rename ${folder.name}`} onClick={() => handleRenameFolder(folder.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                                            <button aria-label={`Delete ${folder.name}`} onClick={() => handleDeleteFolder(folder.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-[rgba(204,0,51,0.08)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
                                         </div>
                                         {!folder.collapsed && (
                                             <div className="space-y-2">
-                                                {results.length > 0 ? (
-                                                    results.map((result) => renderConversationCard(result))
-                                                ) : (
-                                                    <p className="px-2 pb-2 text-[11px] italic text-[var(--text-muted)]">Drop chats here.</p>
-                                                )}
+                                                {results.length > 0 ? results.map((result) => renderConversationCard(result)) : <p className="px-2 pb-2 text-[11px] italic text-[var(--text-muted)]">Drop chats here.</p>}
                                             </div>
                                         )}
                                     </section>
                                 ))}
                             </>
                         ) : (
-                            <section
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={handleDropArchive}
-                                className="space-y-2"
-                            >
-                                {hasVisibleArchivedConversations ? (
-                                    archivedConversationResults.map((result) =>
-                                        renderConversationCard(result, { archived: true })
-                                    )
-                                ) : (
-                                    <p className="px-2 text-[11px] italic text-[var(--text-muted)]">No archived chats.</p>
-                                )}
+                            <section onDragOver={(e) => e.preventDefault()} onDrop={handleDropArchive} className="space-y-2">
+                                {hasVisibleArchivedConversations ? archivedConversationResults.map((result) => renderConversationCard(result, { archived: true })) : <p className="px-2 text-[11px] italic text-[var(--text-muted)]">No archived chats.</p>}
                             </section>
                         )}
                     </div>
@@ -1106,34 +825,26 @@ export default function ChatHub() {
         </div>
       </aside>
 
+      {/* MAIN CHAT AREA */}
       <main className="flex-1 flex flex-col relative z-10">
         <header className="flex items-center justify-between px-6 py-4 bg-[var(--card-bg)] border-b border-[var(--card-border)] shadow-[0_10px_30px_rgba(15,23,42,0.04)] sticky top-0 z-40">
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-[var(--surface-soft)] rounded-lg text-[var(--text-muted)] transition-colors hidden md:block"
-          >
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-[var(--surface-soft)] rounded-lg text-[var(--text-muted)] transition-colors hidden md:block">
             {isSidebarOpen ? '❮' : '❯'}
           </button>
-          
-          <button
-            onClick={handleNewChat}
-            className="md:hidden bg-[var(--surface-soft)] text-[var(--text-secondary)] px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
-          >
+          <button onClick={handleNewChat} className="md:hidden bg-[var(--surface-soft)] text-[var(--text-secondary)] px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider">
             New Chat
           </button>
 
-          {/* CENTERED TITLE - Respecting case sensitivity */}
-          <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-[var(--text-primary)] text-xs sm:text-sm text-center">
+          {/* ACTIVE CHAT TITLE WITH PIN STAR */}
+          <h1 className="absolute left-1/2 -translate-x-1/2 font-black tracking-widest text-[var(--text-primary)] text-xs sm:text-sm text-center flex items-center gap-2">
+            {activeConversation?.isPinned && <StarIcon filled />}
             {activeConversation?.title || "New Session"}
           </h1>
 
           <div className="flex justify-end">
             <Link href={profileHref} className="flex items-center gap-3 group">
               <div className="text-right hidden sm:block">
-                {/* FORCED ALL CAPS USERNAME */}
-                <p className="text-[11px] font-black text-[var(--text-primary)] leading-none group-hover:text-scarlet transition-colors uppercase">
-                  {userName}
-                </p>
+                <p className="text-[11px] font-black text-[var(--text-primary)] leading-none group-hover:text-scarlet transition-colors uppercase">{userName}</p>
                 <p className="text-[9px] text-[var(--text-muted)] font-bold uppercase mt-1">{userMajor}</p>
               </div>
               <div className="w-9 h-9 rounded-full bg-[var(--surface-soft)] border border-[var(--card-border)] group-hover:border-scarlet flex items-center justify-center overflow-hidden transition-colors">
@@ -1156,57 +867,72 @@ export default function ChatHub() {
             </div>
           )}
 
-          {activeConversation?.messages.map((msg, i) => (
-            <div key={i} className={`flex items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-              {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
-                  <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
-                </div>
-              )}
-              <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  {msg.role === 'assistant' && (
-                    <div className="mb-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      <span>{msg.modelLabel ?? getChatModelOption(msg.modelId).label}</span>
-                      {typeof msg.durationMs === 'number' && (
-                        <span className="opacity-70">{Math.round(msg.durationMs / 1000)}s</span>
-                      )}
-                    </div>
-                  )}
-                  <div
-                    data-testid={msg.role === 'user' ? 'user-message' : 'assistant-message'}
-                    className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}
-                  >
-                  {msg.debateThreadId && debateThreads[msg.debateThreadId] ? (
-                    <div data-testid="debate-started-card" className="whitespace-normal">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-scarlet">
-                        Debate started
-                      </p>
-                      <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-primary)]">
-                        {debateThreads[msg.debateThreadId].originalQuestion}
-                      </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-[var(--card-border)] bg-[var(--surface-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                          Context: {debateThreads[msg.debateThreadId].contextUsed}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDebateThreadId(msg.debateThreadId ?? null);
-                            setIsDebatePanelOpen(true);
-                          }}
-                          className="rounded-full bg-scarlet px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#990026]"
-                        >
-                          Open Debate
-                        </button>
+          {activeConversation?.messages.map((msg, i) => {
+            // MULTI-LLM GRID RENDERER
+            const isMultiResponse = msg.role === 'assistant' && msg.comparisonResponses && msg.comparisonResponses.length > 1;
+            const hasSingleResponse = msg.role === 'assistant' && msg.comparisonResponses && msg.comparisonResponses.length === 1;
+
+            return (
+              <div key={i} className={`flex items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                {msg.role === 'assistant' && (
+                  <div className="w-8 h-8 rounded-full border border-[var(--card-border)] flex-shrink-0 flex items-center justify-center bg-[var(--card-bg)] shadow-sm">
+                    <Image src="/overlayicon.png" alt="AI" width={18} height={18} />
+                  </div>
+                )}
+                <div className={`${isMultiResponse ? 'w-full' : 'max-w-[85%] sm:max-w-[75%]'} ${msg.role === 'user' ? 'items-end flex flex-col' : 'items-start'}`}>
+                    {isMultiResponse ? (
+                      <div className={`grid gap-4 w-full ${msg.comparisonResponses!.length === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
+                        {msg.comparisonResponses!.map((res, idx) => (
+                          <div key={idx} className="bg-[var(--card-bg)] border-2 border-[var(--card-border)] rounded-2xl p-5 shadow-sm flex flex-col h-full border-t-scarlet">
+                             <div className="flex justify-between items-center mb-4 pb-2 border-b border-[var(--card-border)]">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-scarlet uppercase tracking-widest">{res.modelLabel}</span>
+                                  <span className="text-[9px] text-[var(--text-muted)] font-bold">{res.durationMs}ms</span>
+                                </div>
+                             </div>
+                             <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap flex-1 text-[var(--text-primary)]">{res.content}</div>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ) : (
-                    msg.content
-                  )}
+                    ) : (
+                      <>
+                        {msg.role === 'assistant' && !msg.debateThreadId && !hasSingleResponse && (
+                          <div className="mb-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                            <span>{msg.modelLabel ?? getChatModelOption(msg.modelId).label}</span>
+                            {typeof msg.durationMs === 'number' && <span className="opacity-70">{Math.round(msg.durationMs / 1000)}s</span>}
+                          </div>
+                        )}
+                        <div
+                          data-testid={msg.role === 'user' ? 'user-message' : 'assistant-message'}
+                          className={`p-4 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)] font-medium whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] border border-[var(--user-bubble-border)] rounded-tr-none' : 'bg-[var(--card-bg)] text-[var(--text-primary)] border border-[var(--card-border)] rounded-tl-none'}`}
+                        >
+                          {msg.debateThreadId && debateThreads[msg.debateThreadId] ? (
+                            <div data-testid="debate-started-card" className="whitespace-normal">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-scarlet">Debate started</p>
+                              <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-primary)]">{debateThreads[msg.debateThreadId].originalQuestion}</p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-[var(--card-border)] bg-[var(--surface-soft)] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--text-muted)]">Context: {debateThreads[msg.debateThreadId].contextUsed}</span>
+                                <button type="button" onClick={() => { setActiveDebateThreadId(msg.debateThreadId ?? null); setIsDebatePanelOpen(true); }} className="rounded-full bg-scarlet px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#990026]">Open Debate</button>
+                              </div>
+                            </div>
+                          ) : hasSingleResponse ? (
+                            <>
+                               <div className="mb-2 pb-2 border-b border-[var(--card-border)] flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-scarlet uppercase tracking-widest">{msg.comparisonResponses![0].modelLabel}</span>
+                                  <span className="text-[9px] text-[var(--text-muted)] font-bold">({msg.comparisonResponses![0].durationMs}ms)</span>
+                               </div>
+                               {msg.comparisonResponses![0].content}
+                            </>
+                          ) : (
+                            msg.content
+                          )}
+                        </div>
+                      </>
+                    )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {isGenerating && (
             <div className="flex items-start gap-3">
@@ -1223,16 +949,12 @@ export default function ChatHub() {
                   <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
-                  {loadingTitle ?? `Thinking with ${getChatModelOption(activeThinkingModelId).label}...`}
+                  {loadingTitle ?? `Thinking with ${selectedModelIds.length} models...`}
                 </span>
                 {loadingDetail ? (
-                  <p data-testid="loading-phase" className="text-sm font-semibold text-[var(--text-primary)]">
-                    {loadingDetail}
-                  </p>
+                  <p data-testid="loading-phase" className="text-sm font-semibold text-[var(--text-primary)]">{loadingDetail}</p>
                 ) : isStepByStepRequest && (
-                  <p data-testid="thinking-phase" className="text-sm font-semibold text-[var(--text-primary)]">
-                    {STEP_BY_STEP_THINKING_MESSAGES[thinkingMessageIndex]}
-                  </p>
+                  <p data-testid="thinking-phase" className="text-sm font-semibold text-[var(--text-primary)]">{STEP_BY_STEP_THINKING_MESSAGES[thinkingMessageIndex]}</p>
                 )}
               </div>
             </div>
@@ -1244,7 +966,23 @@ export default function ChatHub() {
 
         {/* ACTION BAR FOOTER */}
         <div className="p-6 bg-[var(--app-bg)] border-t border-[var(--card-border)]">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto relative">
+            
+            {/* MULTI-MODEL CUSTOM DROPDOWN */}
+            {isModelMenuOpen && (
+              <div ref={modelMenuRef} className="absolute bottom-full right-0 mb-4 w-64 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-2xl p-4 z-[100] animate-in slide-in-from-bottom-2">
+                <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-widest mb-3 px-1">Select Backends</p>
+                <div className="space-y-1">
+                  {CHAT_MODEL_OPTIONS.map(model => (
+                    <button key={model.id} onClick={() => toggleModelSelection(model.id)} className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${selectedModelIds.includes(model.id) ? 'bg-scarlet/10 text-scarlet' : 'hover:bg-[var(--surface-soft)] text-[var(--text-secondary)]'}`}>
+                      <span className="text-xs font-bold">{model.label}</span>
+                      {selectedModelIds.includes(model.id) && <div className="w-2 h-2 bg-scarlet rounded-full shadow-sm" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col bg-[var(--input-bg)] border-2 border-[var(--input-border)] rounded-2xl focus-within:border-scarlet transition-all shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
               <textarea
                 ref={composerRef}
@@ -1285,19 +1023,12 @@ export default function ChatHub() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                   <div className="flex items-center gap-2">
-                      <select
-                          value={selectedModelId}
-                          onChange={(e) => setSelectedModelId(e.target.value)}
-                          className="text-[10px] font-black text-[var(--text-secondary)] hover:text-scarlet bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
-                      >
-                          {CHAT_MODEL_OPTIONS.map((model) => (
-                              <option key={model.id} value={model.id}>
-                                  {model.label} (Local)
-                              </option>
-                          ))}
-                      </select>
-                   </div>
+                   <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-soft)] hover:bg-scarlet/10 rounded-lg transition-all border border-[var(--card-border)] shadow-sm">
+                      <div className="flex -space-x-2">
+                         {selectedModelIds.slice(0, 3).map(id => (<div key={id} className="w-4 h-4 rounded-full bg-scarlet border border-white flex items-center justify-center text-[8px] text-white font-bold">{id[0].toUpperCase()}</div>))}
+                      </div>
+                      <span className="text-[10px] font-black uppercase text-scarlet tracking-tighter">{selectedModelIds.length > 1 ? `Models (${selectedModelIds.length})` : getChatModelOption(selectedModelIds[0]).label}</span>
+                   </button>
                    
                    <button
                       type="submit"
@@ -1321,15 +1052,12 @@ export default function ChatHub() {
             
             <div className="mt-4 flex flex-col items-center gap-1">
                <p className="text-[9px] font-black text-[var(--text-secondary)] uppercase tracking-[0.2em] text-center">
-                 {getChatModelOption(selectedModelId).description}
-               </p>
-               <p className="text-[8px] font-bold text-[var(--text-muted)] text-center italic">
-                 {getChatModelOption(selectedModelId).details}
+                 {getChatModelOption(selectedModelIds[0]).description}
                </p>
                <p className="text-[9px] font-bold text-[var(--text-muted)] text-center uppercase tracking-[0.16em]">
                  {stepByStepMode
-                   ? 'Step-by-Step Mode is on. Math requests will use DeepSeek R1.'
-                   : 'Math questions can auto-switch to DeepSeek R1 for structured reasoning.'}
+                   ? 'Step-by-Step Mode is on. Math requests will force DeepSeek R1.'
+                   : 'Select multiple models to trigger the side-by-side comparison grid.'}
                </p>
                {takenCourses.length > 0 && (
                  <div className="mt-2 flex max-w-4xl flex-wrap items-center justify-center gap-2">

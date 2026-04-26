@@ -100,35 +100,28 @@ const MODEL_STYLE_INSTRUCTIONS: Record<string, string> = {
   'llama-3.1-8b-instant': 'Provide a rapid, highly structured response.'
 };
 
+// UPDATED MATH PROMPT: No longer constrained to 3 steps!
 const STEP_BY_STEP_REASONING_PROMPT = `
 You are Scarlet AI in Step-by-Step Mode, acting as a careful math tutor.
 
 Rules:
 - Solve the student's math problem clearly and educationally.
+- Use as many steps as you need for the specific problem (do not force exactly 3 steps).
 - Do not reveal hidden chain-of-thought or private reasoning.
-- Provide only a concise teaching explanation.
+- DO NOT use bolding (**), asterisks, or markdown on the required headings.
 - Always respond using exactly these headings in this exact order:
 
 Understanding:
 <short description of the problem>
 
-Step 1:
-<first step>
-
-Step 2:
-<second step>
-
-Step 3:
-<third step>
+Solution:
+<your step-by-step breakdown, numbered as needed>
 
 Final Answer:
 <final result>
-
-- Keep each section short and student-friendly.
-- Even for simple problems, include all sections and use Step 3 for checking or concluding the result.
 `.trim();
 
-const STEP_BY_STEP_SECTIONS = ['Understanding', 'Step 1', 'Step 2', 'Step 3', 'Final Answer'] as const;
+const STEP_BY_STEP_SECTIONS = ['Understanding', 'Solution', 'Final Answer'] as const;
 
 // ============================================================================
 // HELPER & FORMATTING FUNCTIONS
@@ -171,28 +164,27 @@ function extractLabeledSection(content: string, label: string) {
   return match?.[1]?.trim() ?? '';
 }
 
-function splitIntoTeachingChunks(content: string) {
-  return content.split(/\n\s*\n|(?<=\.)\s+(?=[A-Z])|(?<=\d)\.\s+/).map((segment) => segment.replace(/^[-*]\s*/, '').trim()).filter(Boolean);
-}
-
 function formatStepByStepResponse(content: string, question: string) {
-  const understanding = extractLabeledSection(content, 'Understanding');
-  const step1 = extractLabeledSection(content, 'Step 1');
-  const step2 = extractLabeledSection(content, 'Step 2');
-  const step3 = extractLabeledSection(content, 'Step 3');
-  const finalAnswer = extractLabeledSection(content, 'Final Answer');
+  // Strip Markdown bolding to ensure the headers parse correctly from Gemini/Groq
+  const normalizedContent = content.replace(/\*\*/g, '');
 
-  if (understanding && step1 && step2 && step3 && finalAnswer) {
-    return ['Understanding:', understanding, '', 'Step 1:', step1, '', 'Step 2:', step2, '', 'Step 3:', step3, '', 'Final Answer:', finalAnswer].join('\n');
+  const understanding = extractLabeledSection(normalizedContent, 'Understanding');
+  const solution = extractLabeledSection(normalizedContent, 'Solution');
+  const finalAnswer = extractLabeledSection(normalizedContent, 'Final Answer');
+
+  if (understanding && solution && finalAnswer) {
+    return [
+      'Understanding:', understanding, '', 
+      'Solution:', solution, '', 
+      'Final Answer:', finalAnswer
+    ].join('\n');
   }
 
-  const segments = splitIntoTeachingChunks(content);
+  // Dynamic fallback if the model deviates slightly from the headings
   return [
-    'Understanding:', understanding || `We need to solve: ${question.trim()}`, '',
-    'Step 1:', step1 || segments[0] || 'Identify the quantities, symbols, and goal of the problem.', '',
-    'Step 2:', step2 || segments[1] || 'Apply the correct math rule or operation carefully.', '',
-    'Step 3:', step3 || segments[2] || 'Check the result and make sure it answers the original question.', '',
-    'Final Answer:', finalAnswer || segments[segments.length - 1] || 'The solution is shown above.'
+    'Understanding:', `We need to solve: ${question.trim()}`, '', 
+    'Solution:', normalizedContent, '', 
+    'Final Answer:', 'See solution above.'
   ].join('\n');
 }
 
@@ -266,7 +258,7 @@ async function requestOllama(messages: ChatMessage[], model: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, messages, stream: false }),
   });
-  if (!response.ok) throw new Error(`Ollama model "${model}" not found or service error.`);
+  if (!response.ok) throw new Error(`The local Ollama model "${model}" is not downloaded. Run 'ollama pull ${model}' in your terminal.`);
   const data = await response.json();
   return data.message.content;
 }
@@ -291,14 +283,9 @@ export async function POST(request: Request) {
     const debateFollowUp = body?.debateFollowUp === true;
     
     // Parse model array for Smart Queuing
-    let modelIds: string[] = Array.isArray(body?.modelIds) 
+    const modelIds: string[] = Array.isArray(body?.modelIds) 
         ? body.modelIds.filter((id: unknown) => typeof id === 'string')
         : [body?.modelId || 'gemini-2.5-flash'];
-
-    // Enforce DeepSeek for Step-By-Step Math per original logic
-    if (isMathRequest) {
-        modelIds = ['deepseek'];
-    }
 
     const messages = sanitizeMessages(body?.messages ?? []);
     
@@ -313,26 +300,34 @@ export async function POST(request: Request) {
 
     // --- 2. DEBATE MODE BYPASS ---
     if (debateFollowUp && body?.debateThread) {
-      const debateThread = await runDebateFollowUp(body.debateThread, validation.normalizedMessage);
-      return NextResponse.json({
-         conversationId: createConversationId(body.conversationId),
-         responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: 'Debate follow-up answered.', durationMs: Date.now() - startTime, status: 'success' }],
-         debateThread,
-         timestamp: new Date().toISOString()
-      });
+      try {
+        const debateThread = await runDebateFollowUp(body.debateThread, validation.normalizedMessage);
+        return NextResponse.json({
+           conversationId: createConversationId(body.conversationId),
+           responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: 'Debate follow-up answered.', durationMs: Date.now() - startTime, status: 'success' }],
+           debateThread,
+           timestamp: new Date().toISOString()
+        });
+      } catch (e: any) {
+        return NextResponse.json({ error: `Could not reach Debate Models: ${e.message}` }, { status: 503 });
+      }
     } else if (debateMode && body?.debateModelIds) {
-      const debateModelIds = Array.isArray(body.debateModelIds) ? body.debateModelIds : ['mistral', 'gemma'];
-      const debateDepth = body?.debateDepth || 'standard';
-      const debate = await runDebateMode(validation.normalizedMessage, debateModelIds, {
-        depth: debateDepth as 'quick' | 'standard' | 'deep',
-        maxRounds: typeof body?.maxRounds === 'number' ? body.maxRounds : undefined,
-      });
-      return NextResponse.json({
-         conversationId: createConversationId(body.conversationId),
-         responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: debate.formatted, durationMs: Date.now() - startTime, status: 'success' }],
-         debateThread: debate.thread,
-         timestamp: new Date().toISOString()
-      });
+      try {
+        const debateModelIds = Array.isArray(body.debateModelIds) ? body.debateModelIds : ['mistral', 'gemma'];
+        const debateDepth = body?.debateDepth || 'standard';
+        const debate = await runDebateMode(validation.normalizedMessage, debateModelIds, {
+          depth: debateDepth as 'quick' | 'standard' | 'deep',
+          maxRounds: typeof body?.maxRounds === 'number' ? body.maxRounds : undefined,
+        });
+        return NextResponse.json({
+           conversationId: createConversationId(body.conversationId),
+           responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: debate.formatted, durationMs: Date.now() - startTime, status: 'success' }],
+           debateThread: debate.thread,
+           timestamp: new Date().toISOString()
+        });
+      } catch (e: any) {
+        return NextResponse.json({ error: `Debate Mode failed. Ensure local models are downloaded. Error: ${e.message}` }, { status: 503 });
+      }
     }
 
     // --- 3. TOOL DATA FETCHING & CONTEXT EXTRACTION ---
