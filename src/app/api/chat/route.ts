@@ -30,6 +30,10 @@ type ChatMessage = {
   content: string;
 };
 
+// ============================================================================
+// SYSTEM PROMPTS & CONSTANTS
+// ============================================================================
+
 const RUTGERS_SYSTEM_PROMPT = `
 You are Scarlet AI, a helpful assistant for Rutgers University students.
 
@@ -92,6 +96,8 @@ const MODEL_STYLE_INSTRUCTIONS: Record<string, string> = {
   deepseek: 'Focus on reasoning and academic planning.',
   'qwen-coder': 'Focus on technical details and prerequisites.',
   gemma: 'Focus on beginner-friendly explanation.',
+  'gemini-2.5-flash': 'Provide a highly accurate, lightning-fast explanation.',
+  'llama-3.1-8b-instant': 'Provide a rapid, highly structured response.'
 };
 
 const STEP_BY_STEP_REASONING_PROMPT = `
@@ -122,48 +128,35 @@ Final Answer:
 - Even for simple problems, include all sections and use Step 3 for checking or concluding the result.
 `.trim();
 
-const STEP_BY_STEP_SECTIONS = [
-  'Understanding',
-  'Step 1',
-  'Step 2',
-  'Step 3',
-  'Final Answer',
-] as const;
+const STEP_BY_STEP_SECTIONS = ['Understanding', 'Step 1', 'Step 2', 'Step 3', 'Final Answer'] as const;
+
+// ============================================================================
+// HELPER & FORMATTING FUNCTIONS
+// ============================================================================
 
 function buildRutgersGroundingContext(message: string) {
   const normalized = message.toLowerCase();
   const isTransitQuestion =
-    normalized.includes('rutgers bus') ||
-    normalized.includes('bus route') ||
-    normalized.includes('bus routes') ||
-    normalized.includes('shuttle') ||
-    normalized.includes('passio') ||
-    normalized.includes('dots') ||
-    normalized.includes('new brunswick bus') ||
-    normalized.includes('newark bus') ||
-    normalized.includes('camden bus');
+    normalized.includes('rutgers bus') || normalized.includes('bus route') ||
+    normalized.includes('shuttle') || normalized.includes('passio') ||
+    normalized.includes('dots') || normalized.includes('new brunswick bus') ||
+    normalized.includes('newark bus') || normalized.includes('camden bus');
 
-  if (!isTransitQuestion) {
-    return null;
-  }
+  if (!isTransitQuestion) return null;
 
   return `
 Official Rutgers transit grounding:
-
 - Rutgers bus information should be treated as campus-specific and may change.
 - For live routing, availability, and schedules, students should verify in Passio GO and with Rutgers DOTS.
 - Rutgers does not provide direct intercampus bus service between New Brunswick, Newark, and Camden.
-
 Known official campus transit names:
 - New Brunswick/Piscataway weekday routes include: A, B, BL Loop, C, EE, F, H, LX, REXB, and REXL.
 - New Brunswick also operates Knight Mover and a shuttle to 33 Knightsbridge Road.
 - Newark campus transit includes Campus Connect. Newark service pages also reference Penn Station and Penn Station Local.
 - Camden campus transit is the Rutgers Camden Shuttle.
-
 Answering rules for transit questions:
 - Use only the route names above if naming Rutgers buses.
-- If the user asks for current timing, delays, or stop-by-stop directions, say they should verify in Passio GO or Rutgers DOTS because those details change.
-- If you are not fully sure which campus the user means, ask whether they mean New Brunswick, Newark, or Camden.
+- If the user asks for current timing, delays, or stop-by-stop directions, say they should verify in Passio GO or Rutgers DOTS.
   `.trim();
 }
 
@@ -173,19 +166,13 @@ function escapeRegExp(value: string) {
 
 function extractLabeledSection(content: string, label: string) {
   const labelsPattern = STEP_BY_STEP_SECTIONS.map(escapeRegExp).join('|');
-  const regex = new RegExp(
-    `${escapeRegExp(label)}:\\s*([\\s\\S]*?)(?=\\n(?:${labelsPattern}):|$)`,
-    'i'
-  );
+  const regex = new RegExp(`${escapeRegExp(label)}:\\s*([\\s\\S]*?)(?=\\n(?:${labelsPattern}):|$)`, 'i');
   const match = content.match(regex);
   return match?.[1]?.trim() ?? '';
 }
 
 function splitIntoTeachingChunks(content: string) {
-  return content
-    .split(/\n\s*\n|(?<=\.)\s+(?=[A-Z])|(?<=\d)\.\s+/)
-    .map((segment) => segment.replace(/^[-*]\s*/, '').trim())
-    .filter(Boolean);
+  return content.split(/\n\s*\n|(?<=\.)\s+(?=[A-Z])|(?<=\d)\.\s+/).map((segment) => segment.replace(/^[-*]\s*/, '').trim()).filter(Boolean);
 }
 
 function formatStepByStepResponse(content: string, question: string) {
@@ -195,81 +182,18 @@ function formatStepByStepResponse(content: string, question: string) {
   const step3 = extractLabeledSection(content, 'Step 3');
   const finalAnswer = extractLabeledSection(content, 'Final Answer');
 
-  const hasAllSections =
-    understanding && step1 && step2 && step3 && finalAnswer;
-
-  if (hasAllSections) {
-    return [
-      'Understanding:',
-      understanding,
-      '',
-      'Step 1:',
-      step1,
-      '',
-      'Step 2:',
-      step2,
-      '',
-      'Step 3:',
-      step3,
-      '',
-      'Final Answer:',
-      finalAnswer,
-    ].join('\n');
+  if (understanding && step1 && step2 && step3 && finalAnswer) {
+    return ['Understanding:', understanding, '', 'Step 1:', step1, '', 'Step 2:', step2, '', 'Step 3:', step3, '', 'Final Answer:', finalAnswer].join('\n');
   }
 
   const segments = splitIntoTeachingChunks(content);
-  const fallbackUnderstanding =
-    understanding || `We need to solve: ${question.trim()}`;
-  const fallbackStep1 = step1 || segments[0] || 'Identify the quantities, symbols, and goal of the problem.';
-  const fallbackStep2 = step2 || segments[1] || 'Apply the correct math rule or operation carefully.';
-  const fallbackStep3 = step3 || segments[2] || 'Check the result and make sure it answers the original question.';
-  const fallbackFinalAnswer =
-    finalAnswer || segments[segments.length - 1] || 'The solution is shown above.';
-
   return [
-    'Understanding:',
-    fallbackUnderstanding,
-    '',
-    'Step 1:',
-    fallbackStep1,
-    '',
-    'Step 2:',
-    fallbackStep2,
-    '',
-    'Step 3:',
-    fallbackStep3,
-    '',
-    'Final Answer:',
-    fallbackFinalAnswer,
+    'Understanding:', understanding || `We need to solve: ${question.trim()}`, '',
+    'Step 1:', step1 || segments[0] || 'Identify the quantities, symbols, and goal of the problem.', '',
+    'Step 2:', step2 || segments[1] || 'Apply the correct math rule or operation carefully.', '',
+    'Step 3:', step3 || segments[2] || 'Check the result and make sure it answers the original question.', '',
+    'Final Answer:', finalAnswer || segments[segments.length - 1] || 'The solution is shown above.'
   ].join('\n');
-}
-
-/**
- * PRODUCER: Local Ollama (Local Development)
- */
-async function requestOllama(messages: ChatMessage[], model: string) {
-  const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-  
-  try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Ollama model "${model}" not found or service error.`);
-    }
-
-    const data = await response.json();
-    return data.message.content;
-  } catch {
-    throw new Error(`Ollama is unavailable. Make sure "ollama serve" is running.`);
-  }
 }
 
 function stripMarkdownAsterisks(content: string) {
@@ -282,219 +206,75 @@ function limitToFiveSentences(content: string) {
 }
 
 function formatSearchResultsForPrompt(results: SearchResult[]) {
-  return results
-    .map((result, index) =>
-      [
-        `Result ${index + 1}`,
-        `Title: ${result.title}`,
-        `URL: ${result.url}`,
-        `Snippet: ${result.snippet}`,
-      ].join('\n')
-    )
-    .join('\n\n');
-}
-
-function formatSourcesUsed(results: SearchResult[]) {
-  if (results.length === 0) {
-    return '';
-  }
-
-  return [
-    '',
-    'Sources used:',
-    ...results.map((result) => `${result.title} - ${result.url}`),
-  ].join('\n');
+  return results.map((result, index) => [`Result ${index + 1}`, `Title: ${result.title}`, `URL: ${result.url}`, `Snippet: ${result.snippet}`].join('\n')).join('\n\n');
 }
 
 function shouldUseDuckDuckGoSearch(message: string) {
   const normalized = message.toLowerCase();
-  const isCasual =
-    /^(hi|hello|hey|thanks|thank you)\b/.test(normalized) ||
-    normalized.includes('how are you');
-  const asksForCodingHelp =
-    normalized.includes('code') ||
-    normalized.includes('debug') ||
-    normalized.includes('typescript') ||
-    normalized.includes('javascript') ||
-    normalized.includes('react');
-  const asksCurrentOrFactual =
-    normalized.includes('current') ||
-    normalized.includes('latest') ||
-    normalized.includes('today') ||
-    normalized.includes('deadline') ||
-    normalized.includes('policy') ||
-    normalized.includes('professor') ||
-    normalized.includes('instructor') ||
-    normalized.includes('rutgers') ||
-    normalized.includes('course details') ||
-    normalized.includes('course fact') ||
-    normalized.includes('when is') ||
-    normalized.includes('what is the') ||
-    normalized.includes('who is');
+  const isCasual = /^(hi|hello|hey|thanks|thank you)\b/.test(normalized) || normalized.includes('how are you');
+  const asksForCodingHelp = normalized.includes('code') || normalized.includes('debug') || normalized.includes('typescript') || normalized.includes('javascript') || normalized.includes('react');
+  const asksCurrentOrFactual = normalized.includes('current') || normalized.includes('latest') || normalized.includes('today') || normalized.includes('deadline') || normalized.includes('policy') || normalized.includes('professor') || normalized.includes('instructor') || normalized.includes('rutgers') || normalized.includes('course details') || normalized.includes('course fact') || normalized.includes('when is') || normalized.includes('what is the') || normalized.includes('who is') || normalized.includes('weather');
 
   return asksCurrentOrFactual && !isCasual && !asksForCodingHelp;
 }
 
 function detectRouteIntent(message: string): 'course_info' | 'schedule' | 'curriculum' | 'general' {
   const normalized = message.toLowerCase();
-
-  if (detectScheduleIntent(message)) {
-    return 'schedule';
-  }
-
-  if (
-    normalized.includes('curriculum') ||
-    normalized.includes('degree') ||
-    normalized.includes('requirement') ||
-    normalized.includes('requirements') ||
-    normalized.includes('required courses') ||
-    normalized.includes('need to take')
-  ) {
-    return 'curriculum';
-  }
-
-  if (extractRutgersCourseCodes(message).length > 0) {
-    return 'course_info';
-  }
-
+  if (detectScheduleIntent(message)) return 'schedule';
+  if (normalized.includes('curriculum') || normalized.includes('degree') || normalized.includes('requirement') || normalized.includes('requirements') || normalized.includes('required courses') || normalized.includes('need to take')) return 'curriculum';
+  if (extractRutgersCourseCodes(message).length > 0) return 'course_info';
   return 'general';
-}
-
-async function answerWithRutgersSoc(message: string, model: ChatModelOption) {
-  const term = detectSocTerm(message);
-  const allCourses = await fetchRutgersSocCourses(term, 'NB');
-  const matchingCourses = filterSocCourses(allCourses, message);
-  const context = formatSocContext(matchingCourses, term);
-
-  if (!context) {
-    return {
-      content: 'I could not verify that from the available Rutgers Schedule of Classes data.',
-      term,
-    };
-  }
-
-  const answer = await requestOllama(
-    [
-      { role: 'system', content: SOC_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: [
-          `Rutgers Schedule of Classes context:\n${context}`,
-          '',
-          `Model style instruction:\n${getModelStyleInstruction(model.id)}`,
-          '',
-          `User question:\n${message}`,
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel!
-  );
-
-  return {
-    content: limitToFiveSentences(stripMarkdownAsterisks(answer)),
-    term,
-  };
 }
 
 function getModelStyleInstruction(modelId: string) {
   return MODEL_STYLE_INSTRUCTIONS[modelId] ?? 'Give a clear student-friendly explanation.';
 }
 
-function detectMultiModelRequest(message: string) {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes('multi-model') ||
-    normalized.includes('all models') ||
-    normalized.includes('compare models') ||
-    normalized.includes('each model')
-  );
-}
+// ============================================================================
+// API PRODUCERS (CLOUD & LOCAL)
+// ============================================================================
 
-async function answerCourseWithModel(
-  message: string,
-  model: ChatModelOption,
-  verifiedContext: string
-) {
-  const answer = await requestOllama(
-    [
-      {
-        role: 'system',
-        content: [
-          'You are Scarlet AI.',
-          'Use only the verified course data below.',
-          'Do not change factual fields such as course code, title, school, credits, verified next courses, or sources.',
-          'You may vary only explanation style, recommendation, difficulty interpretation, study advice, and who the course is best for.',
-          'Use plain text. No asterisks. No bold. Maximum 5 sentences.',
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          `Verified course data:\n${verifiedContext}`,
-          '',
-          `Model style instruction:\n${getModelStyleInstruction(model.id)}`,
-          '',
-          `User question:\n${message}`,
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel!
-  );
-
-  return limitToFiveSentences(stripMarkdownAsterisks(answer));
-}
-
-async function answerCourseWithSelectedModels(
-  message: string,
-  selectedModel: ChatModelOption,
-  facts: string,
-  verifiedContext: string
-) {
-  const models = detectMultiModelRequest(message) ? CHAT_MODEL_OPTIONS : [selectedModel];
-  const responses = await Promise.all(
-    models.map(async (model) => {
-      try {
-        const answer = await answerCourseWithModel(message, model, verifiedContext);
-        return `${model.label}:\n${answer}`;
-      } catch {
-        return `${model.label}:\nCould not get a response from this local model.`;
-      }
-    })
-  );
-
-  return [facts, '', ...responses].join('\n');
-}
-
-async function answerWithDuckDuckGo(message: string, model: ChatModelOption) {
-  const searchResults = (await searchDuckDuckGo(message)).slice(0, 5);
-
-  if (searchResults.length === 0) {
-    return 'I could not verify that from the available sources.';
+async function requestGemini(messages: ChatMessage[], apiKey: string) {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.error?.message || `Gemini API Error`);
   }
-
-  const answer = await requestOllama(
-    [
-      { role: 'system', content: WEB_SEARCH_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: [
-          `Search results:\n${formatSearchResultsForPrompt(searchResults)}`,
-          '',
-          `Model style instruction:\n${getModelStyleInstruction(model.id)}`,
-          '',
-          `User question:\n${message}`,
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel!
-  );
-
-  return `${limitToFiveSentences(stripMarkdownAsterisks(answer))}${formatSourcesUsed(searchResults)}`;
+  const data = await response.json();
+  return data.candidates[0].content.parts[0].text;
 }
 
-/**
- * MAIN POST HANDLER
- */
+async function requestGroq(messages: ChatMessage[], apiKey: string) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages }),
+  });
+  if (!response.ok) throw new Error(`Groq API Error`);
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function requestOllama(messages: ChatMessage[], model: string) {
+  const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, stream: false }),
+  });
+  if (!response.ok) throw new Error(`Ollama model "${model}" not found or service error.`);
+  const data = await response.json();
+  return data.message.content;
+}
+
+// ============================================================================
+// MAIN POST ROUTE CONTROLLER
+// ============================================================================
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -504,158 +284,202 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
+    // --- 1. PARSE REQUEST INTENT & MODES ---
     const stepByStepMode = body?.stepByStepMode === true;
-    const isMathRequest = detectMathReasoningRequest(
-      validation.normalizedMessage,
-      stepByStepMode
-    );
-    const rememberedCoursesFromMessage = extractRutgersTakenCourses(
-      validation.normalizedMessage
-    );
-    const resolvedModelId = resolveChatModelId(body?.modelId, {
-      stepByStepMode,
-      isMathRequest,
-    });
-    const selectedModel = getChatModelOption(resolvedModelId);
-    const messages = sanitizeMessages(body?.messages ?? []);
+    const isMathRequest = detectMathReasoningRequest(validation.normalizedMessage, stepByStepMode);
     const debateMode = body?.debateMode === true;
     const debateFollowUp = body?.debateFollowUp === true;
-    const debateModelIds = Array.isArray(body?.debateModelIds)
-      ? body.debateModelIds.filter((modelId: unknown) => typeof modelId === 'string')
-      : [];
-    const debateDepth =
-      body?.debateDepth === 'quick' || body?.debateDepth === 'deep' || body?.debateDepth === 'standard'
-        ? body.debateDepth
-        : 'standard';
-    const debateMaxRounds =
-      typeof body?.maxRounds === 'number' ? body.maxRounds : undefined;
     
-    // Ensure history is sent to the LLM for context memory [cite: 10, 35]
+    // Parse model array for Smart Queuing
+    let modelIds: string[] = Array.isArray(body?.modelIds) 
+        ? body.modelIds.filter((id: unknown) => typeof id === 'string')
+        : [body?.modelId || 'gemini-2.5-flash'];
+
+    // Enforce DeepSeek for Step-By-Step Math per original logic
+    if (isMathRequest) {
+        modelIds = ['deepseek'];
+    }
+
+    const messages = sanitizeMessages(body?.messages ?? []);
+    
+    // Maintain History Memory
     const chatHistory: ChatMessage[] = messages.map((m) => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content,
     }));
 
-    const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
-
-    const promptMessages: ChatMessage[] = [
-      { role: 'system', content: RUTGERS_SYSTEM_PROMPT },
-      ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] : []),
-      ...(isMathRequest ? [{ role: 'system' as const, content: STEP_BY_STEP_REASONING_PROMPT }] : []),
-      ...chatHistory,
-    ];
-
-    // Append the current message
-    promptMessages.push({ role: 'user', content: validation.normalizedMessage });
-
-    let content = '';
     const startTime = Date.now();
+    let dataSourceUsed: 'local_dataset' | 'rutgers_soc_api' | 'duckduckgo_search' | 'model_only' = 'model_only';
+
+    // --- 2. DEBATE MODE BYPASS ---
+    if (debateFollowUp && body?.debateThread) {
+      const debateThread = await runDebateFollowUp(body.debateThread, validation.normalizedMessage);
+      return NextResponse.json({
+         conversationId: createConversationId(body.conversationId),
+         responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: 'Debate follow-up answered.', durationMs: Date.now() - startTime, status: 'success' }],
+         debateThread,
+         timestamp: new Date().toISOString()
+      });
+    } else if (debateMode && body?.debateModelIds) {
+      const debateModelIds = Array.isArray(body.debateModelIds) ? body.debateModelIds : ['mistral', 'gemma'];
+      const debateDepth = body?.debateDepth || 'standard';
+      const debate = await runDebateMode(validation.normalizedMessage, debateModelIds, {
+        depth: debateDepth as 'quick' | 'standard' | 'deep',
+        maxRounds: typeof body?.maxRounds === 'number' ? body.maxRounds : undefined,
+      });
+      return NextResponse.json({
+         conversationId: createConversationId(body.conversationId),
+         responses: [{ modelId: 'debate', modelLabel: 'Debate Mode', content: debate.formatted, durationMs: Date.now() - startTime, status: 'success' }],
+         debateThread: debate.thread,
+         timestamp: new Date().toISOString()
+      });
+    }
+
+    // --- 3. TOOL DATA FETCHING & CONTEXT EXTRACTION ---
+    let systemOverride = RUTGERS_SYSTEM_PROMPT;
+    let toolContextPrompt: ChatMessage | null = null;
+    let staticResponse: string | null = null;
+
     const detectedIntent = detectRouteIntent(validation.normalizedMessage);
     const detectedCourseCodes = extractRutgersCourseCodes(validation.normalizedMessage);
     const detectedSocTerm = detectSocTerm(validation.normalizedMessage);
+    const rememberedCoursesFromMessage = extractRutgersTakenCourses(validation.normalizedMessage);
     const localCourseLookup = getLocalRutgersCoursesForQuestion(validation.normalizedMessage);
     const localCourseAnswer = answerLocalRutgersCourseQuestion(validation.normalizedMessage);
-    let dataSourceUsed: 'local_dataset' | 'rutgers_soc_api' | 'duckduckgo_search' | 'model_only' = 'model_only';
 
-    let debateThread = null;
-
-    if (debateFollowUp && body?.debateThread) {
-      debateThread = await runDebateFollowUp(body.debateThread, validation.normalizedMessage);
-      content = 'Debate follow-up answered.';
-      dataSourceUsed =
-        debateThread.contextUsed === 'SOC API'
-          ? 'rutgers_soc_api'
-          : debateThread.contextUsed === 'DuckDuckGo'
-            ? 'duckduckgo_search'
-            : debateThread.contextUsed === 'local data'
-              ? 'local_dataset'
-              : 'model_only';
-    } else if (debateMode) {
-      const debate = await runDebateMode(validation.normalizedMessage, debateModelIds, {
-        depth: debateDepth,
-        maxRounds: debateMaxRounds,
-      });
-      content = debate.formatted;
-      debateThread = debate.thread;
-      dataSourceUsed =
-        debate.context.kind === 'SOC API'
-          ? 'rutgers_soc_api'
-          : debate.context.kind === 'DuckDuckGo'
-            ? 'duckduckgo_search'
-            : debate.context.kind === 'local data'
-              ? 'local_dataset'
-              : 'model_only';
-    } else if (detectedIntent === 'schedule') {
+    if (detectedIntent === 'schedule') {
       dataSourceUsed = 'rutgers_soc_api';
-      const socAnswer = await answerWithRutgersSoc(
-        validation.normalizedMessage,
-        selectedModel
-      );
-      content = socAnswer.content;
+      const term = detectSocTerm(validation.normalizedMessage);
+      const allCourses = await fetchRutgersSocCourses(term, 'NB');
+      const matchingCourses = filterSocCourses(allCourses, validation.normalizedMessage);
+      const context = formatSocContext(matchingCourses, term);
+      
+      if (context) {
+         systemOverride = SOC_SYSTEM_PROMPT;
+         toolContextPrompt = { role: 'user', content: `Rutgers Schedule of Classes context:\n${context}\n\nUser question:\n${validation.normalizedMessage}` };
+      } else {
+         staticResponse = 'I could not verify that from the available Rutgers Schedule of Classes data.';
+      }
     } else if (localCourseAnswer) {
       dataSourceUsed = 'local_dataset';
       if (localCourseLookup?.missingCodes.length) {
-        content = 'I do not have verified data for that course yet.';
+         staticResponse = 'I do not have verified data for that course yet.';
       } else if (localCourseLookup?.courses.length) {
-        content = await answerCourseWithSelectedModels(
-          validation.normalizedMessage,
-          selectedModel,
-          formatVerifiedCourseFacts(localCourseLookup.courses),
-          formatCourseContextForModel(localCourseLookup.courses)
-        );
+         systemOverride = 'You are Scarlet AI.\nUse only the verified course data below.\nDo not change factual fields such as course code, title, school, credits, verified next courses, or sources.\nYou may vary only explanation style.\nUse plain text. No asterisks. No bold. Maximum 5 sentences.';
+         const formattedFacts = formatVerifiedCourseFacts(localCourseLookup.courses);
+         toolContextPrompt = { role: 'user', content: `Verified course data:\n${formatCourseContextForModel(localCourseLookup.courses)}\n\nFacts:\n${formattedFacts}\n\nUser question:\n${validation.normalizedMessage}` };
       } else {
-        content = localCourseAnswer;
+         staticResponse = localCourseAnswer;
       }
     } else if (detectedIntent === 'curriculum') {
-      dataSourceUsed = 'duckduckgo_search';
-      content = await answerWithDuckDuckGo(
-        validation.normalizedMessage,
-        selectedModel
-      );
+       dataSourceUsed = 'duckduckgo_search';
+       const searchResults = (await searchDuckDuckGo(validation.normalizedMessage)).slice(0, 5);
+       if (searchResults.length === 0) {
+         staticResponse = 'I could not verify that from the available sources.';
+       } else {
+         systemOverride = WEB_SEARCH_SYSTEM_PROMPT;
+         toolContextPrompt = { role: 'user', content: `Search results:\n${formatSearchResultsForPrompt(searchResults)}\n\nUser question:\n${validation.normalizedMessage}` };
+       }
     } else if (rememberedCoursesFromMessage.length > 0) {
-      dataSourceUsed = 'local_dataset';
-      const rememberedCodes = rememberedCoursesFromMessage.map((course) => course.code).join(', ');
-      content = `Got it. I will remember that you completed: ${rememberedCodes}.\n\nWhen you ask me to build a Rutgers schedule, I will skip those courses.`;
+       dataSourceUsed = 'local_dataset';
+       const rememberedCodes = rememberedCoursesFromMessage.map((course) => course.code).join(', ');
+       staticResponse = `Got it. I will remember that you completed: ${rememberedCodes}.\n\nWhen you ask me to build a Rutgers schedule, I will skip those courses.`;
     } else if (!isMathRequest && shouldUseDuckDuckGoSearch(validation.normalizedMessage)) {
-      dataSourceUsed = 'duckduckgo_search';
-      content = await answerWithDuckDuckGo(
-        validation.normalizedMessage,
-        selectedModel
-      );
-    } else {
-      // Local Ollama Models [cite: 13, 14]
-      content = await requestOllama(promptMessages, selectedModel.ollamaModel!);
-
-      if (isMathRequest) {
-        content = formatStepByStepResponse(content, validation.normalizedMessage);
-      }
+       dataSourceUsed = 'duckduckgo_search';
+       const searchResults = (await searchDuckDuckGo(validation.normalizedMessage)).slice(0, 5);
+       if (searchResults.length > 0) {
+         systemOverride = WEB_SEARCH_SYSTEM_PROMPT;
+         toolContextPrompt = { role: 'user', content: `Search results:\n${formatSearchResultsForPrompt(searchResults)}\n\nUser question:\n${validation.normalizedMessage}` };
+       }
     }
 
+    // --- CONSOLE DEBUGGING FOR TAs ---
     console.log('Detected intent:', detectedIntent);
     console.log('Data source used:', dataSourceUsed);
     console.log('Course code detected:', detectedCourseCodes.join(', ') || 'none');
     console.log('Year/term used:', `${detectedSocTerm.year}/${detectedSocTerm.term}`);
 
-    const conversationId = createConversationId(body?.conversationId);
+    // If a tool resulted in a static text response, bypass the LLMs entirely
+    if (staticResponse) {
+       return NextResponse.json({
+         conversationId: createConversationId(body?.conversationId),
+         responses: [{ modelId: 'system', modelLabel: 'Scarlet AI Tool', content: staticResponse, durationMs: Date.now() - startTime, status: 'success' }],
+         timestamp: new Date().toISOString(),
+         stepByStepMode: isMathRequest
+       });
+    }
+
+    // --- 4. BUILD FINAL PROMPT WITH EXTRACTED CONTEXT ---
+    const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
+    const baseSystemPrompt = isMathRequest ? STEP_BY_STEP_REASONING_PROMPT : systemOverride;
+
+    const executeModelStrategy = async (id: string) => {
+        const modelOption = getChatModelOption(id);
+        const styleInstruct = getModelStyleInstruction(id);
+        
+        const finalUserPrompt = toolContextPrompt
+            ? toolContextPrompt.content.replace('User question:', `Model style instruction:\n${styleInstruct}\n\nUser question:`)
+            : `Model style instruction:\n${styleInstruct}\n\nUser question:\n${validation.normalizedMessage}`;
+
+        const finalMessages: ChatMessage[] = [
+            { role: 'system', content: baseSystemPrompt },
+            ...(groundingContext ? [{ role: 'system' as const, content: groundingContext }] : []),
+            ...chatHistory,
+            { role: 'user', content: finalUserPrompt }
+        ];
+
+        const executeStart = Date.now();
+        let generatedContent = '';
+        try {
+            if (modelOption.provider === 'google') generatedContent = await requestGemini(finalMessages, process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+            else if (modelOption.provider === 'groq') generatedContent = await requestGroq(finalMessages, process.env.GROQ_API_KEY!);
+            else generatedContent = await requestOllama(finalMessages, modelOption.ollamaModel!);
+
+            // Apply formatting rules based on intent
+            if (isMathRequest) {
+                generatedContent = formatStepByStepResponse(generatedContent, validation.normalizedMessage);
+            } else if (systemOverride !== RUTGERS_SYSTEM_PROMPT && dataSourceUsed !== 'model_only') {
+                generatedContent = limitToFiveSentences(stripMarkdownAsterisks(generatedContent));
+            }
+
+            return { 
+                modelId: id, 
+                modelLabel: modelOption.label, 
+                content: generatedContent.trim(), 
+                durationMs: Date.now() - executeStart, 
+                status: 'success' 
+            };
+        } catch (e: any) {
+            return { 
+                modelId: id, 
+                modelLabel: modelOption.label, 
+                content: `Error: ${e.message}`, 
+                durationMs: Date.now() - executeStart, 
+                status: 'error' 
+            };
+        }
+    };
+
+    // --- 5. SMART QUEUING (Parallel Cloud, Sequential Local) ---
+    const cloudModelIds = modelIds.filter(id => getChatModelOption(id).provider !== 'ollama');
+    const localModelIds = modelIds.filter(id => getChatModelOption(id).provider === 'ollama');
+
+    const cloudResults = await Promise.all(cloudModelIds.map(executeModelStrategy));
+    const localResults = [];
+    for (const id of localModelIds) {
+        localResults.push(await executeModelStrategy(id));
+    }
 
     return NextResponse.json({
-      conversationId,
-      content: content.trim(),
-      durationMs: Date.now() - startTime,
-      modelId: selectedModel.id,
-      modelLabel: selectedModel.label,
-      modelDescription: selectedModel.details,
-      stepByStepMode: isMathRequest,
-      debateThread,
-      timestamp: new Date().toISOString(),
+        conversationId: createConversationId(body?.conversationId),
+        responses: [...cloudResults, ...localResults],
+        stepByStepMode: isMathRequest,
+        timestamp: new Date().toISOString()
     });
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unable to process your message.';
     console.error('POST /api/chat failed:', error);
-    return NextResponse.json(
-      { error: message },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 }
