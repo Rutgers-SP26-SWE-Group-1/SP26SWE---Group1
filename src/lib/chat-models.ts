@@ -11,14 +11,14 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
   // --- CLOUD MODELS (Lightning Fast) ---
   {
     id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
+    label: 'Gemini 2.5 Flash (Cloud)',
     description: 'Cloud (Google)',
     details: 'Lightning fast universal model. Best for general queries.',
     provider: 'google',
   },
   {
     id: 'llama-3.1-8b-instant',
-    label: 'Llama 3.1',
+    label: 'Llama 3.1 (Cloud)',
     description: 'Cloud (Groq)',
     details: 'Extremely fast inference via Groq LPU.',
     provider: 'groq',
