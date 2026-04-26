@@ -58,6 +58,8 @@ const MODEL_DEBATE_STYLES: Record<string, string> = {
   deepseek: 'Focus on reasoning and academic planning.',
   'qwen-coder': 'Focus on technical details and prerequisites.',
   gemma: 'Focus on beginner-friendly explanation.',
+  'gemini-2.5-flash': 'Be highly logical and precise.',
+  'llama-3.1-8b-instant': 'Be structured and debate aggressively.',
 };
 
 const ROUND_TITLES: Record<number, string> = {
@@ -107,18 +109,41 @@ export function getDebateDepthSettings(depth: DebateDepth = 'standard', maxRound
   return { depth: 'standard' as const, maxRounds: clampCustomMaxRounds(maxRounds), label: 'Standard' };
 }
 
-async function requestOllama(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, model: string) {
+// ============================================================================
+// UNIVERSAL API FETCHERS (SUPPORTING CLOUD + LOCAL IN DEBATE)
+// ============================================================================
+
+async function executeDebateTurn(model: ChatModelOption, promptMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+  if (model.provider === 'google') {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: promptMessages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) }),
+    });
+    if (!response.ok) throw new Error('Gemini API Error');
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+  }
+  
+  if (model.provider === 'groq') {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages: promptMessages }),
+    });
+    if (!response.ok) throw new Error('Groq API Error');
+    const data = await response.json();
+    return data.choices[0].message.content;
+  }
+  
+  // OLLAMA FALLBACK
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, stream: false }),
+    body: JSON.stringify({ model: model.ollamaModel, messages: promptMessages, stream: false }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Ollama model "${model}" is unavailable.`);
-  }
-
+  if (!response.ok) throw new Error(`Ollama model unavailable.`);
   const data = await response.json();
   return String(data.message?.content ?? '');
 }
@@ -202,12 +227,12 @@ export async function getRelevantContext(userMessage: string): Promise<DebateCon
 
 function resolveDebateModels(selectedModels: string[]) {
   const modelIds = Array.from(new Set(selectedModels)).slice(0, 5);
-  const models = (modelIds.length > 0 ? modelIds : [DEFAULT_CHAT_MODEL.id, 'gemma'])
+  const models = (modelIds.length > 0 ? modelIds : [DEFAULT_CHAT_MODEL.id, 'llama-3.1-8b-instant'])
     .map((modelId) => getChatModelOption(modelId))
     .filter(Boolean)
     .slice(0, 5);
 
-  return models.length >= 2 ? models : [DEFAULT_CHAT_MODEL, getChatModelOption('gemma')];
+  return models.length >= 2 ? models : [DEFAULT_CHAT_MODEL, getChatModelOption('llama-3.1-8b-instant')];
 }
 
 function baseSystemPrompt(model: ChatModelOption) {
@@ -223,12 +248,12 @@ function baseSystemPrompt(model: ChatModelOption) {
   ].join('\n');
 }
 
-function unavailableMessage(model: ChatModelOption, role: DebateMessage['role'], round: number): DebateMessage {
+function unavailableMessage(model: ChatModelOption, role: DebateMessage['role'], round: number, errorMsg: string): DebateMessage {
   return {
     id: createId('debate-message'),
     model: model.label,
     role,
-    content: 'I cannot join this round because this local Ollama model is unavailable.',
+    content: `I cannot join this round due to an API error or missing installation. (${errorMsg})`,
     timestamp: new Date().toISOString(),
     round,
   };
@@ -240,37 +265,35 @@ export async function generateModelArgument(
   context: DebateContext,
   round = 1
 ): Promise<DebateMessage> {
-  if (!model.ollamaModel) {
-    throw new Error(`${model.label} is missing an Ollama model name.`);
+  const promptMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: baseSystemPrompt(model) },
+    {
+      role: 'user',
+      content: [
+        `Verified context source: ${context.kind}`,
+        `Verified context:\n${context.contextText || 'No verified external context provided.'}`,
+        '',
+        `User question:\n${userMessage}`,
+        '',
+        'Give a concise opening argument in 3-5 sentences.',
+        'Speak naturally, as if you are talking to the other selected models.',
+      ].join('\n'),
+    },
+  ];
+
+  try {
+    const answer = await executeDebateTurn(model, promptMessages);
+    return {
+      id: createId('debate-message'),
+      model: model.label,
+      role: 'opening',
+      content: sanitizeDebateText(answer),
+      timestamp: new Date().toISOString(),
+      round,
+    };
+  } catch (error: any) {
+    return unavailableMessage(model, 'opening', round, error.message);
   }
-
-  const answer = await requestOllama(
-    [
-      { role: 'system', content: baseSystemPrompt(model) },
-      {
-        role: 'user',
-        content: [
-          `Verified context source: ${context.kind}`,
-          `Verified context:\n${context.contextText || 'No verified external context provided.'}`,
-          '',
-          `User question:\n${userMessage}`,
-          '',
-          'Give a concise opening argument in 3-5 sentences.',
-          'Speak naturally, as if you are talking to the other selected models.',
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel
-  );
-
-  return {
-    id: createId('debate-message'),
-    model: model.label,
-    role: 'opening',
-    content: sanitizeDebateText(answer),
-    timestamp: new Date().toISOString(),
-    round,
-  };
 }
 
 async function generateRoundResponseMessage(
@@ -281,47 +304,45 @@ async function generateRoundResponseMessage(
   currentRound: number,
   maxRounds: number
 ): Promise<DebateMessage> {
-  if (!model.ollamaModel) {
-    throw new Error(`${model.label} is missing an Ollama model name.`);
-  }
-
   const previousArguments = previousRoundMessages
     .filter((message) => message.model !== model.label)
     .map((message) => `${message.model}: ${message.content}`)
     .join('\n\n');
 
-  const answer = await requestOllama(
-    [
-      { role: 'system', content: baseSystemPrompt(model) },
-      {
-        role: 'user',
-        content: [
-          `Verified context source: ${context.kind}`,
-          `Verified context:\n${context.contextText || 'No verified external context provided.'}`,
-          '',
-          `Original question:\n${userMessage}`,
-          '',
-          `Previous round arguments:\n${previousArguments || 'No previous argument was available.'}`,
-          '',
-          `This is round ${currentRound} of a maximum of ${maxRounds}.`,
-          'Respond to the previous round.',
-          'You may reinforce your position, revise your position, agree with another model, or explain why you still disagree.',
-          'If you agree on the main answer but still have caveats, say that naturally.',
-          'Keep it under 5 sentences and do not use labels.',
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel
-  );
+  const promptMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: baseSystemPrompt(model) },
+    {
+      role: 'user',
+      content: [
+        `Verified context source: ${context.kind}`,
+        `Verified context:\n${context.contextText || 'No verified external context provided.'}`,
+        '',
+        `Original question:\n${userMessage}`,
+        '',
+        `Previous round arguments:\n${previousArguments || 'No previous argument was available.'}`,
+        '',
+        `This is round ${currentRound} of a maximum of ${maxRounds}.`,
+        'Respond to the previous round.',
+        'You may reinforce your position, revise your position, agree with another model, or explain why you still disagree.',
+        'If you agree on the main answer but still have caveats, say that naturally.',
+        'Keep it under 5 sentences and do not use labels.',
+      ].join('\n'),
+    },
+  ];
 
-  return {
-    id: createId('debate-message'),
-    model: model.label,
-    role: 'rebuttal',
-    content: sanitizeDebateText(answer),
-    timestamp: new Date().toISOString(),
-    round: currentRound,
-  };
+  try {
+    const answer = await executeDebateTurn(model, promptMessages);
+    return {
+      id: createId('debate-message'),
+      model: model.label,
+      role: 'rebuttal',
+      content: sanitizeDebateText(answer),
+      timestamp: new Date().toISOString(),
+      round: currentRound,
+    };
+  } catch (error: any) {
+    return unavailableMessage(model, 'rebuttal', currentRound, error.message);
+  }
 }
 
 export async function generateFollowUpMessage(
@@ -330,45 +351,43 @@ export async function generateFollowUpMessage(
   followUp: string,
   round = thread.completedRounds + 1
 ): Promise<DebateMessage> {
-  if (!model.ollamaModel) {
-    throw new Error(`${model.label} is missing an Ollama model name.`);
-  }
-
   const threadSoFar = thread.messages
     .slice(-10)
     .map((message) => `${message.model} (${message.role}): ${message.content}`)
     .join('\n\n');
 
-  const answer = await requestOllama(
-    [
-      { role: 'system', content: baseSystemPrompt(model) },
-      {
-        role: 'user',
-        content: [
-          `Original question:\n${thread.originalQuestion}`,
-          '',
-          `Context used: ${thread.contextUsed}`,
-          '',
-          `Debate so far:\n${threadSoFar}`,
-          '',
-          `Follow-up question:\n${followUp}`,
-          '',
-          'Answer this follow-up as your own voice in the debate.',
-          'Keep it under 5 sentences and grounded in the original context.',
-        ].join('\n'),
-      },
-    ],
-    model.ollamaModel
-  );
+  const promptMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: baseSystemPrompt(model) },
+    {
+      role: 'user',
+      content: [
+        `Original question:\n${thread.originalQuestion}`,
+        '',
+        `Context used: ${thread.contextUsed}`,
+        '',
+        `Debate so far:\n${threadSoFar}`,
+        '',
+        `Follow-up question:\n${followUp}`,
+        '',
+        'Answer this follow-up as your own voice in the debate.',
+        'Keep it under 5 sentences and grounded in the original context.',
+      ].join('\n'),
+    },
+  ];
 
-  return {
-    id: createId('debate-message'),
-    model: model.label,
-    role: 'followup',
-    content: sanitizeDebateText(answer),
-    timestamp: new Date().toISOString(),
-    round,
-  };
+  try {
+    const answer = await executeDebateTurn(model, promptMessages);
+    return {
+      id: createId('debate-message'),
+      model: model.label,
+      role: 'followup',
+      content: sanitizeDebateText(answer),
+      timestamp: new Date().toISOString(),
+      round,
+    };
+  } catch (error: any) {
+    return unavailableMessage(model, 'followup', round, error.message);
+  }
 }
 
 function latestRoundMessages(messages: DebateMessage[]) {
@@ -396,7 +415,7 @@ export function checkConsensus(messages: DebateMessage[]): DebateVerdict {
   const latestText = latestMessages.map((message) => message.content.toLowerCase()).join(' ');
   const latestRound = Math.max(1, ...latestMessages.map((message) => message.round || 1));
   const unavailableCount = latestMessages.filter((message) =>
-    message.content.toLowerCase().includes('unavailable')
+    message.content.toLowerCase().includes('unavailable') || message.content.toLowerCase().includes('error')
   ).length;
   const agreementCount = latestMessages.filter((message) =>
     /\b(agree|same conclusion|same recommendation|consensus|converge|aligned|i accept|i would also)\b/i.test(message.content)
@@ -411,7 +430,7 @@ export function checkConsensus(messages: DebateMessage[]): DebateVerdict {
   if (unavailableCount > 0) {
     return {
       status: 'still_debating',
-      summary: 'Still debating. At least one selected model was unavailable, so the thread needs another usable round before a verdict is reliable.',
+      summary: 'Still debating. At least one selected model encountered an error or was unavailable, so the thread needs another usable round before a verdict is reliable.',
       modelPositions,
     };
   }
@@ -459,7 +478,7 @@ export function generateFinalVerdict(messages: DebateMessage[], context: DebateC
 
   const modelPositions = extractModelPositions(messages);
   const unavailableCount = messages.filter((message) =>
-    message.content.toLowerCase().includes('unavailable')
+    message.content.toLowerCase().includes('unavailable') || message.content.toLowerCase().includes('error')
   ).length;
   const cannotVerifyCount = messages.filter((message) =>
     message.content.toLowerCase().includes('cannot verify') ||
@@ -493,11 +512,7 @@ export async function runDebateMode(
 
   const openingMessages = await Promise.all(
     models.map(async (model) => {
-      try {
-        return await generateModelArgument(model, userMessage, context, currentRound);
-      } catch {
-        return unavailableMessage(model, 'opening', currentRound);
-      }
+      return await generateModelArgument(model, userMessage, context, currentRound);
     })
   );
 
@@ -508,18 +523,14 @@ export async function runDebateMode(
     const previousRoundMessages = messages.filter((message) => message.round === currentRound - 1);
     const roundMessages = await Promise.all(
       models.map(async (model) => {
-        try {
-          return await generateRoundResponseMessage(
-            model,
-            userMessage,
-            context,
-            previousRoundMessages,
-            currentRound,
-            depthSettings.maxRounds
-          );
-        } catch {
-          return unavailableMessage(model, 'rebuttal', currentRound);
-        }
+        return await generateRoundResponseMessage(
+          model,
+          userMessage,
+          context,
+          previousRoundMessages,
+          currentRound,
+          depthSettings.maxRounds
+        );
       })
     );
     messages.push(...roundMessages);
@@ -550,11 +561,7 @@ export async function runDebateFollowUp(thread: DebateThread, followUp: string) 
   const followUpRound = (thread.completedRounds ?? thread.maxRounds ?? 5) + 1;
   const followUpMessages = await Promise.all(
     models.map(async (model) => {
-      try {
-        return await generateFollowUpMessage(model, thread, followUp, followUpRound);
-      } catch {
-        return unavailableMessage(model, 'followup', followUpRound);
-      }
+      return await generateFollowUpMessage(model, thread, followUp, followUpRound);
     })
   );
   const syntheticContext: DebateContext = {
