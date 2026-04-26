@@ -165,7 +165,14 @@ export default function ChatHub() {
   const [editTitle, setEditTitle] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [folderMenuOpenId, setFolderMenuOpenId] = useState<string | null>(null);
+  
+  // INLINE FOLDER STATES
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [sidebarNewFolderName, setSidebarNewFolderName] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState('');
   const [newFolderName, setNewFolderName] = useState('');
+
   const [sidebarTab, setSidebarTab] = useState<'chats' | 'archived'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -464,20 +471,20 @@ export default function ChatHub() {
     setActiveConversationId(freshConversation.id);
   };
 
-  const handleCreateFolder = (initialName?: string) => {
-    const folderName = (initialName ?? window.prompt('Folder name') ?? '').trim();
+  // INLINE FOLDER CREATION
+  const handleCreateFolder = (name: string) => {
+    const folderName = name.trim();
     if (!folderName) return null;
     const newFolder: ChatFolder = { id: createId('folder'), name: folderName, createdAt: new Date().toISOString(), collapsed: false };
     setFolders((current) => [...current, newFolder]);
     return newFolder;
   };
 
-  const handleRenameFolder = (folderId: string) => {
-    const folder = folders.find((item) => item.id === folderId);
-    if (!folder) return;
-    const nextName = window.prompt('Rename folder', folder.name)?.trim();
-    if (!nextName) return;
-    setFolders((current) => current.map((item) => (item.id === folderId ? { ...item, name: nextName } : item)));
+  // INLINE FOLDER RENAMING
+  const handleRenameFolderSubmit = (folderId: string) => {
+    if (!editFolderName.trim()) { setEditingFolderId(null); return; }
+    setFolders((current) => current.map((item) => (item.id === folderId ? { ...item, name: editFolderName.trim() } : item)));
+    setEditingFolderId(null);
   };
 
   const handleDeleteFolder = (folderId: string) => {
@@ -500,7 +507,6 @@ export default function ChatHub() {
   };
 
   const handleArchiveConversation = (conversationId: string) => {
-    // FIX: Archiving no longer wipes folderId!
     setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, archived: true, updatedAt: new Date().toISOString() } : conversation));
     if (activeConversationId === conversationId) selectFirstAvailableConversation(conversationId);
     setSidebarTab('archived');
@@ -685,7 +691,7 @@ export default function ChatHub() {
       >
         <div className="flex items-start gap-3 px-3 py-3 group">
           <button onClick={() => handleSelectConversation(conversation.id)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-            {/* PIN ICON RESTORED */}
+            {/* PIN ICON */}
             {conversation.isPinned && <div className="mt-1"><StarIcon filled /></div>}
             
             {editingId === conversation.id ? (
@@ -709,7 +715,7 @@ export default function ChatHub() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
 
-          {/* NO MORE WINDOW.PROMPT - BEAUTIFUL INLINE FOLDER MENU */}
+          {/* BEAUTIFUL INLINE FOLDER MENU */}
           {folderMenuOpenId === conversation.id && (
               <div ref={sidebarMenuRef} className="absolute right-2 top-10 w-56 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-2xl z-[60] py-3 px-3 animate-in fade-in slide-in-from-top-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2 px-1">Move to Folder</p>
@@ -775,9 +781,21 @@ export default function ChatHub() {
                         <button onClick={() => setSidebarTab('archived')} className={`flex-1 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${sidebarTab === 'archived' ? 'bg-[var(--card-bg)] text-scarlet shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>Archived</button>
                     </div>
 
+                    {/* INLINE FOLDER CREATION HEADER */}
                     <div className="mb-3 flex items-center justify-between px-2">
                         <p className="font-bold uppercase tracking-widest text-[10px] text-[var(--text-muted)]">{sidebarTab === 'chats' ? 'Folders' : 'Archived Chats'}</p>
-                        {sidebarTab === 'chats' && <button aria-label="Create folder" title="Create folder" onClick={() => handleCreateFolder()} className="opacity-60 hover:opacity-100 rounded-lg p-1 text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)] transition-all"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>}
+                        {sidebarTab === 'chats' && (
+                            <div className="flex items-center">
+                              {isCreatingFolder ? (
+                                <div className="flex items-center bg-[var(--surface-soft)] border border-[var(--input-border)] rounded px-1.5 py-1">
+                                  <input autoFocus placeholder="Name..." className="bg-transparent outline-none text-[10px] w-20 text-[var(--text-primary)]" value={sidebarNewFolderName} onChange={e => setSidebarNewFolderName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && sidebarNewFolderName.trim()) { handleCreateFolder(sidebarNewFolderName); setIsCreatingFolder(false); setSidebarNewFolderName(''); } else if (e.key === 'Escape') setIsCreatingFolder(false); }} />
+                                  <button onClick={() => { if(sidebarNewFolderName.trim()) handleCreateFolder(sidebarNewFolderName); setIsCreatingFolder(false); setSidebarNewFolderName(''); }} className="text-scarlet font-black text-[10px] ml-1">+</button>
+                                </div>
+                              ) : (
+                                <button aria-label="Create folder" title="Create folder" onClick={() => setIsCreatingFolder(true)} className="opacity-60 hover:opacity-100 rounded-lg p-1 text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)] transition-all"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+                              )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="h-[calc(100vh-430px)] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
@@ -790,16 +808,21 @@ export default function ChatHub() {
                                     {recentConversationResults.map((result) => renderConversationCard(result))}
                                 </section>
 
+                                {/* INLINE FOLDER RENAMING UI */}
                                 {folderConversationResults.map(({ folder, results }) => (
                                     <section key={folder.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropConversation(e, folder.id)} className="rounded-xl border border-transparent hover:border-[var(--card-border)]">
                                         <div className="group flex items-center gap-2 px-2 py-1.5">
                                             <button onClick={() => toggleFolderCollapsed(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)]">
                                                 <svg className={`transition-transform ${folder.collapsed ? '-rotate-90' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                                                <span className="truncate">{folder.name}</span>
+                                                {editingFolderId === folder.id ? (
+                                                  <input autoFocus className="bg-transparent border-b border-scarlet outline-none text-[10px] text-[var(--text-primary)] w-24" value={editFolderName} onChange={e => setEditFolderName(e.target.value)} onBlur={() => handleRenameFolderSubmit(folder.id)} onKeyDown={e => e.key === 'Enter' && handleRenameFolderSubmit(folder.id)} onClick={e => e.stopPropagation()} />
+                                                ) : (
+                                                  <span className="truncate">{folder.name}</span>
+                                                )}
                                                 <span className="text-[9px] opacity-60">{results.length}</span>
                                             </button>
-                                            <button aria-label={`Rename ${folder.name}`} onClick={() => handleRenameFolder(folder.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
-                                            <button aria-label={`Delete ${folder.name}`} onClick={() => handleDeleteFolder(folder.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-[rgba(204,0,51,0.08)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+                                            <button onClick={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-scarlet hover:bg-[var(--surface-soft)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                                            <button onClick={() => handleDeleteFolder(folder.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-[rgba(204,0,51,0.08)]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
                                         </div>
                                         {!folder.collapsed && (
                                             <div className="space-y-2">
@@ -1056,7 +1079,7 @@ export default function ChatHub() {
                </p>
                <p className="text-[9px] font-bold text-[var(--text-muted)] text-center uppercase tracking-[0.16em]">
                  {stepByStepMode
-                   ? 'Step-by-Step Mode is on. Math requests will force DeepSeek R1.'
+                   ? 'Step-by-Step Mode is on. The selected models will break down the math.'
                    : 'Select multiple models to trigger the side-by-side comparison grid.'}
                </p>
                {takenCourses.length > 0 && (

@@ -63,9 +63,10 @@ Tone:
 const WEB_SEARCH_SYSTEM_PROMPT = `
 You are Scarlet AI.
 
-Use only the verified context below to answer.
-If the context does not contain the answer, say:
-“I could not verify that from the available sources.”
+Use the verified context below to answer the user's question.
+If the context contains the factual answer, summarize it concisely.
+If the context only provides links or directions to the answer, kindly explain that and direct the user to those sources.
+Do not hallucinate facts not present in the context.
 
 Formatting:
 Use plain text.
@@ -100,7 +101,6 @@ const MODEL_STYLE_INSTRUCTIONS: Record<string, string> = {
   'llama-3.1-8b-instant': 'Provide a rapid, highly structured response.'
 };
 
-// UPDATED MATH PROMPT: No longer constrained to 3 steps!
 const STEP_BY_STEP_REASONING_PROMPT = `
 You are Scarlet AI in Step-by-Step Mode, acting as a careful math tutor.
 
@@ -108,7 +108,7 @@ Rules:
 - Solve the student's math problem clearly and educationally.
 - Use as many steps as you need for the specific problem (do not force exactly 3 steps).
 - Do not reveal hidden chain-of-thought or private reasoning.
-- DO NOT use bolding (**), asterisks, or markdown on the required headings.
+- DO NOT use bolding (**), asterisks, or markdown on the required headings. Just use plain text for the headers.
 - Always respond using exactly these headings in this exact order:
 
 Understanding:
@@ -165,8 +165,7 @@ function extractLabeledSection(content: string, label: string) {
 }
 
 function formatStepByStepResponse(content: string, question: string) {
-  // Strip Markdown bolding to ensure the headers parse correctly from Gemini/Groq
-  const normalizedContent = content.replace(/\*\*/g, '');
+  const normalizedContent = content.replace(/\*\*/g, '').replace(/#/g, '');
 
   const understanding = extractLabeledSection(normalizedContent, 'Understanding');
   const solution = extractLabeledSection(normalizedContent, 'Solution');
@@ -180,10 +179,9 @@ function formatStepByStepResponse(content: string, question: string) {
     ].join('\n');
   }
 
-  // Dynamic fallback if the model deviates slightly from the headings
   return [
     'Understanding:', `We need to solve: ${question.trim()}`, '', 
-    'Solution:', normalizedContent, '', 
+    'Solution:', normalizedContent.trim(), '', 
     'Final Answer:', 'See solution above.'
   ].join('\n');
 }
@@ -201,19 +199,73 @@ function formatSearchResultsForPrompt(results: SearchResult[]) {
   return results.map((result, index) => [`Result ${index + 1}`, `Title: ${result.title}`, `URL: ${result.url}`, `Snippet: ${result.snippet}`].join('\n')).join('\n\n');
 }
 
-function shouldUseDuckDuckGoSearch(message: string) {
-  const normalized = message.toLowerCase();
-  const isCasual = /^(hi|hello|hey|thanks|thank you)\b/.test(normalized) || normalized.includes('how are you');
-  const asksForCodingHelp = normalized.includes('code') || normalized.includes('debug') || normalized.includes('typescript') || normalized.includes('javascript') || normalized.includes('react');
-  const asksCurrentOrFactual = normalized.includes('current') || normalized.includes('latest') || normalized.includes('today') || normalized.includes('deadline') || normalized.includes('policy') || normalized.includes('professor') || normalized.includes('instructor') || normalized.includes('rutgers') || normalized.includes('course details') || normalized.includes('course fact') || normalized.includes('when is') || normalized.includes('what is the') || normalized.includes('who is') || normalized.includes('weather');
-
-  return asksCurrentOrFactual && !isCasual && !asksForCodingHelp;
+function formatSourcesUsed(results: SearchResult[]) {
+  if (results.length === 0) return '';
+  return ['\n\nSources used:', ...results.map((result) => `• ${result.title} - ${result.url}`)].join('\n');
 }
 
-function detectRouteIntent(message: string): 'course_info' | 'schedule' | 'curriculum' | 'general' {
+// ============================================================================
+// CUSTOM LIVE DATA FETCHERS (NO API KEYS REQUIRED)
+// ============================================================================
+
+async function getLiveWeather(query: string) {
+  try {
+    const location = query.toLowerCase().includes('robbinsville') ? 'Robbinsville,NJ' : 'New_Brunswick,NJ';
+    
+    // wttr.in sometimes blocks automated scripts. Adding a User-Agent bypasses this.
+    const res = await fetch(`https://wttr.in/${location}?format=j1`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      }
+    });
+    
+    if (!res.ok) return null;
+    const data = await res.json();
+    
+    const current = data.current_condition[0];
+    const forecast = data.weather[0]; 
+    
+    return `Live Weather for ${location.replace('_', ' ')}:\nCurrent Temp: ${current.temp_F}°F\nCondition: ${current.weatherDesc[0].value}\nFeels Like: ${current.FeelsLikeF}°F\nToday's High/Low: ${forecast.maxtempF}°F / ${forecast.mintempF}°F.`;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getRutgersNews() {
+  try {
+    // Rutgers IT officially maintains a highly stable RSS feed
+    const res = await fetch('https://it.rutgers.edu/feed/');
+    if (!res.ok) return null;
+    const xml = await res.text();
+    
+    // FIX: Split the XML by <item> so we ONLY parse actual news articles, 
+    // and completely ignore SVG/HTML UI metadata.
+    const items = xml.split('<item>').slice(1, 4);
+    if (items.length === 0) return null;
+
+    let newsContext = "Latest Rutgers News:\n";
+    items.forEach((item, i) => {
+      // Safely extract the title and link, ignoring CDATA tags if present
+      const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i);
+      const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+      
+      if (titleMatch && linkMatch) {
+        newsContext += `${i + 1}. ${titleMatch[1]} (Link: ${linkMatch[1]})\n`;
+      }
+    });
+    
+    return newsContext;
+  } catch (e) {
+    return null;
+  }
+}
+
+function detectRouteIntent(message: string): 'weather' | 'news' | 'course_info' | 'schedule' | 'curriculum' | 'general' {
   const normalized = message.toLowerCase();
+  if (normalized.includes('weather') || normalized.includes('temperature')) return 'weather';
+  if (normalized.includes('news') || normalized.includes('happening at rutgers')) return 'news';
   if (detectScheduleIntent(message)) return 'schedule';
-  if (normalized.includes('curriculum') || normalized.includes('degree') || normalized.includes('requirement') || normalized.includes('requirements') || normalized.includes('required courses') || normalized.includes('need to take')) return 'curriculum';
+  if (normalized.includes('curriculum') || normalized.includes('degree') || normalized.includes('requirement')) return 'curriculum';
   if (extractRutgersCourseCodes(message).length > 0) return 'course_info';
   return 'general';
 }
@@ -246,8 +298,13 @@ async function requestGroq(messages: ChatMessage[], apiKey: string) {
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages }),
   });
-  if (!response.ok) throw new Error(`Groq API Error`);
-  const data = await response.json();
+  if (!response.ok) {
+    // Fixed: Catches specific rate limit / 502 errors from Groq
+    const text = await response.text();
+    if (response.status === 429) throw new Error("Groq Rate Limit Exceeded: Too many requests. Please wait a minute.");
+    throw new Error(`Groq API Error (${response.status}): ${text.slice(0, 80)}`);
+  }
+  const data = await JSON.parse(await response.text());
   return data.choices[0].message.content;
 }
 
@@ -276,29 +333,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    // --- 1. PARSE REQUEST INTENT & MODES ---
     const stepByStepMode = body?.stepByStepMode === true;
     const isMathRequest = detectMathReasoningRequest(validation.normalizedMessage, stepByStepMode);
     const debateMode = body?.debateMode === true;
     const debateFollowUp = body?.debateFollowUp === true;
     
-    // Parse model array for Smart Queuing
     const modelIds: string[] = Array.isArray(body?.modelIds) 
         ? body.modelIds.filter((id: unknown) => typeof id === 'string')
         : [body?.modelId || 'gemini-2.5-flash'];
 
     const messages = sanitizeMessages(body?.messages ?? []);
     
-    // Maintain History Memory
     const chatHistory: ChatMessage[] = messages.map((m) => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content,
     }));
 
     const startTime = Date.now();
-    let dataSourceUsed: 'local_dataset' | 'rutgers_soc_api' | 'duckduckgo_search' | 'model_only' = 'model_only';
+    let dataSourceUsed = 'model_only';
+    let searchResultsData: SearchResult[] = []; 
 
-    // --- 2. DEBATE MODE BYPASS ---
+    // --- DEBATE MODE BYPASS ---
     if (debateFollowUp && body?.debateThread) {
       try {
         const debateThread = await runDebateFollowUp(body.debateThread, validation.normalizedMessage);
@@ -330,19 +385,34 @@ export async function POST(request: Request) {
       }
     }
 
-    // --- 3. TOOL DATA FETCHING & CONTEXT EXTRACTION ---
+    // --- TOOL DATA FETCHING & CONTEXT EXTRACTION ---
     let systemOverride = RUTGERS_SYSTEM_PROMPT;
     let toolContextPrompt: ChatMessage | null = null;
     let staticResponse: string | null = null;
 
     const detectedIntent = detectRouteIntent(validation.normalizedMessage);
-    const detectedCourseCodes = extractRutgersCourseCodes(validation.normalizedMessage);
-    const detectedSocTerm = detectSocTerm(validation.normalizedMessage);
-    const rememberedCoursesFromMessage = extractRutgersTakenCourses(validation.normalizedMessage);
-    const localCourseLookup = getLocalRutgersCoursesForQuestion(validation.normalizedMessage);
     const localCourseAnswer = answerLocalRutgersCourseQuestion(validation.normalizedMessage);
+    const rememberedCoursesFromMessage = extractRutgersTakenCourses(validation.normalizedMessage);
 
-    if (detectedIntent === 'schedule') {
+    if (detectedIntent === 'weather') {
+      dataSourceUsed = 'custom_weather_api';
+      const weatherData = await getLiveWeather(validation.normalizedMessage);
+      if (weatherData) {
+         systemOverride = "You are Scarlet AI. Use the provided live weather data to concisely answer the user's question and recommend what they should wear/do.";
+         toolContextPrompt = { role: 'user', content: `Live Data:\n${weatherData}\n\nUser question:\n${validation.normalizedMessage}` };
+      } else {
+         staticResponse = "I am currently unable to fetch the live weather data.";
+      }
+    } else if (detectedIntent === 'news') {
+      dataSourceUsed = 'rutgers_rss_feed';
+      const newsData = await getRutgersNews();
+      if (newsData) {
+         systemOverride = "You are Scarlet AI. Summarize the provided news headlines clearly and conversationally. Always include the source links at the bottom of your response.";
+         toolContextPrompt = { role: 'user', content: `Live News Data:\n${newsData}\n\nUser question:\n${validation.normalizedMessage}` };
+      } else {
+         staticResponse = "I could not retrieve the latest news from Rutgers at this moment.";
+      }
+    } else if (detectedIntent === 'schedule') {
       dataSourceUsed = 'rutgers_soc_api';
       const term = detectSocTerm(validation.normalizedMessage);
       const allCourses = await fetchRutgersSocCourses(term, 'NB');
@@ -357,6 +427,7 @@ export async function POST(request: Request) {
       }
     } else if (localCourseAnswer) {
       dataSourceUsed = 'local_dataset';
+      const localCourseLookup = getLocalRutgersCoursesForQuestion(validation.normalizedMessage);
       if (localCourseLookup?.missingCodes.length) {
          staticResponse = 'I do not have verified data for that course yet.';
       } else if (localCourseLookup?.courses.length) {
@@ -372,6 +443,7 @@ export async function POST(request: Request) {
        if (searchResults.length === 0) {
          staticResponse = 'I could not verify that from the available sources.';
        } else {
+         searchResultsData = searchResults;
          systemOverride = WEB_SEARCH_SYSTEM_PROMPT;
          toolContextPrompt = { role: 'user', content: `Search results:\n${formatSearchResultsForPrompt(searchResults)}\n\nUser question:\n${validation.normalizedMessage}` };
        }
@@ -379,22 +451,11 @@ export async function POST(request: Request) {
        dataSourceUsed = 'local_dataset';
        const rememberedCodes = rememberedCoursesFromMessage.map((course) => course.code).join(', ');
        staticResponse = `Got it. I will remember that you completed: ${rememberedCodes}.\n\nWhen you ask me to build a Rutgers schedule, I will skip those courses.`;
-    } else if (!isMathRequest && shouldUseDuckDuckGoSearch(validation.normalizedMessage)) {
-       dataSourceUsed = 'duckduckgo_search';
-       const searchResults = (await searchDuckDuckGo(validation.normalizedMessage)).slice(0, 5);
-       if (searchResults.length > 0) {
-         systemOverride = WEB_SEARCH_SYSTEM_PROMPT;
-         toolContextPrompt = { role: 'user', content: `Search results:\n${formatSearchResultsForPrompt(searchResults)}\n\nUser question:\n${validation.normalizedMessage}` };
-       }
     }
 
-    // --- CONSOLE DEBUGGING FOR TAs ---
     console.log('Detected intent:', detectedIntent);
     console.log('Data source used:', dataSourceUsed);
-    console.log('Course code detected:', detectedCourseCodes.join(', ') || 'none');
-    console.log('Year/term used:', `${detectedSocTerm.year}/${detectedSocTerm.term}`);
 
-    // If a tool resulted in a static text response, bypass the LLMs entirely
     if (staticResponse) {
        return NextResponse.json({
          conversationId: createConversationId(body?.conversationId),
@@ -404,7 +465,6 @@ export async function POST(request: Request) {
        });
     }
 
-    // --- 4. BUILD FINAL PROMPT WITH EXTRACTED CONTEXT ---
     const groundingContext = buildRutgersGroundingContext(validation.normalizedMessage);
     const baseSystemPrompt = isMathRequest ? STEP_BY_STEP_REASONING_PROMPT : systemOverride;
 
@@ -430,11 +490,14 @@ export async function POST(request: Request) {
             else if (modelOption.provider === 'groq') generatedContent = await requestGroq(finalMessages, process.env.GROQ_API_KEY!);
             else generatedContent = await requestOllama(finalMessages, modelOption.ollamaModel!);
 
-            // Apply formatting rules based on intent
             if (isMathRequest) {
                 generatedContent = formatStepByStepResponse(generatedContent, validation.normalizedMessage);
-            } else if (systemOverride !== RUTGERS_SYSTEM_PROMPT && dataSourceUsed !== 'model_only') {
+            } else if (systemOverride !== RUTGERS_SYSTEM_PROMPT && dataSourceUsed !== 'model_only' && dataSourceUsed !== 'rutgers_rss_feed') {
                 generatedContent = limitToFiveSentences(stripMarkdownAsterisks(generatedContent));
+            }
+
+            if (dataSourceUsed === 'duckduckgo_search' && searchResultsData.length > 0) {
+                generatedContent += '\n' + formatSourcesUsed(searchResultsData);
             }
 
             return { 
@@ -448,14 +511,13 @@ export async function POST(request: Request) {
             return { 
                 modelId: id, 
                 modelLabel: modelOption.label, 
-                content: `Error: ${e.message}`, 
+                content: e.message, 
                 durationMs: Date.now() - executeStart, 
                 status: 'error' 
             };
         }
     };
 
-    // --- 5. SMART QUEUING (Parallel Cloud, Sequential Local) ---
     const cloudModelIds = modelIds.filter(id => getChatModelOption(id).provider !== 'ollama');
     const localModelIds = modelIds.filter(id => getChatModelOption(id).provider === 'ollama');
 
