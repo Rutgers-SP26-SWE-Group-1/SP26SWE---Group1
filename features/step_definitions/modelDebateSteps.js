@@ -8,7 +8,7 @@ function buildDebateThread(overrides = {}) {
       id: 'msg-gemini-opening',
       model: 'Gemini 2.5 Flash (Cloud)',
       role: 'opening',
-      content: 'CS 112 should usually come before CS 211 because it builds the programming and data structure foundation.',
+      content: 'Computer Science is usually stronger for software, AI, theory, and flexible tech career paths.',
       timestamp: new Date().toISOString(),
       round: 1,
     },
@@ -16,7 +16,7 @@ function buildDebateThread(overrides = {}) {
       id: 'msg-llama-opening',
       model: 'Llama 3.1 (Cloud)',
       role: 'opening',
-      content: 'I agree with taking CS 112 first, especially if the student wants a smoother CS 211 experience.',
+      content: 'Computer Engineering can be better for students who want hardware, embedded systems, and low-level computing.',
       timestamp: new Date().toISOString(),
       round: 1,
     },
@@ -24,7 +24,7 @@ function buildDebateThread(overrides = {}) {
 
   return {
     id: 'mock-debate-thread',
-    originalQuestion: 'Should I take CS 112 before CS 211?',
+    originalQuestion: 'Which major is better, Computer Engineering or Computer Science?',
     selectedModels: ['gemini-2.5-flash', 'llama-3.1-8b-instant'],
     contextUsed: 'local data',
     depth: 'standard',
@@ -36,8 +36,8 @@ function buildDebateThread(overrides = {}) {
       summary: 'Consensus reached in Round 1. The models agree on the main recommendation.',
       reachedRound: 1,
       modelPositions: {
-        'Gemini 2.5 Flash (Cloud)': 'Take CS 112 first.',
-        'Llama 3.1 (Cloud)': 'Take CS 112 first.',
+        'Gemini 2.5 Flash (Cloud)': 'Computer Science is stronger for software and AI.',
+        'Llama 3.1 (Cloud)': 'Computer Engineering is stronger for hardware-oriented computing.',
       },
     },
     ...overrides,
@@ -56,7 +56,7 @@ function buildFollowUpThread() {
         id: 'msg-gemini-followup',
         model: 'Gemini 2.5 Flash (Cloud)',
         role: 'followup',
-        content: 'If you already know Java, CS 112 may still be useful for Rutgers-specific expectations and data structures practice.',
+        content: 'If you want to work in AI, Computer Science is usually the better fit because it emphasizes algorithms, data, and machine learning foundations.',
         timestamp: new Date().toISOString(),
         round: 2,
       },
@@ -64,7 +64,7 @@ function buildFollowUpThread() {
         id: 'msg-llama-followup',
         model: 'Llama 3.1 (Cloud)',
         role: 'followup',
-        content: 'Prior Java experience helps, but it does not fully replace the CS 112 foundation.',
+        content: 'Computer Engineering can still lead to AI work, especially robotics or edge devices, but Computer Science is the more direct path.',
         timestamp: new Date().toISOString(),
         round: 2,
       },
@@ -117,7 +117,7 @@ function attachDebateMock(page, world) {
             {
               modelId: 'debate',
               modelLabel: 'Debate Mode',
-              content: 'Debate started: Should I take CS 112 before CS 211?',
+              content: 'Debate started: Which major is better, Computer Engineering or Computer Science?',
               durationMs: 25,
               status: 'success',
             },
@@ -212,7 +212,7 @@ Then('the Open Debate button should be visible', async function () {
 
 Then('the debate follow-up request should be sent', async function () {
   await this.page.waitForFunction(
-    () => document.body.innerText.includes('If you already know Java'),
+    () => document.body.innerText.includes('If you want to work in AI'),
     { timeout: 10000 }
   );
   assert.ok(this.lastDebateFollowUpRequest, 'Expected a mocked debate follow-up request.');
@@ -221,5 +221,5 @@ Then('the debate follow-up request should be sent', async function () {
 
 Then('the debate thread should show the follow-up answer', async function () {
   const text = await this.page.$eval('[data-testid="debate-thread-panel"]', (panel) => panel.textContent || '');
-  assert.ok(text.includes('If you already know Java'), 'Expected the follow-up answer inside the debate thread.');
+  assert.ok(text.includes('If you want to work in AI'), 'Expected the follow-up answer inside the debate thread.');
 });
