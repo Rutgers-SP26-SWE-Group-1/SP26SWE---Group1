@@ -4,3 +4,9 @@ Feature 3: Search conversation history (search by title and message contents). [
 Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates]
 Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates]
 Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates]
+
+
+Feature 7: Multi-Model Debate Mode. [PR 8](​​​​https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 8: Workspace UI and Folders. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 9: Live Weather and Rutgers News API. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 10: Step-by-Step Math Reasoning. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
