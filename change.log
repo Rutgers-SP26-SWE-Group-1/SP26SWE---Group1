@@ -10,3 +10,7 @@ Feature 7: Multi-Model Debate Mode. [PR 8](​​​​https://github.com/Rutger
 Feature 8: Workspace UI and Folders. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
 Feature 9: Live Weather and Rutgers News API. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
 Feature 10: Step-by-Step Math Reasoning. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+
+Many of these features are edited and then pushed, remerged and tested in older branches such as
+https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/tree/test-team-iteration3 
+
