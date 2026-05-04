@@ -11,16 +11,23 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   {
-    ignores: ["tests/**/*", "**/*.spec.ts", "src/lib/auth.spec.ts", "src/app/signup/**/*"]
+    // Native ignore list
+    ignores: [
+      "tests/**/*", 
+      "**/*.spec.ts", 
+      "src/lib/auth.spec.ts", 
+      "src/app/signup/**/*",
+      ".eslintignore"
+    ]
   },
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-  {
+  ...compat.config({
+    extends: ["next/core-web-vitals"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-explicit-any": "off"
     }
-  }
+  })
 ];
 
 export default eslintConfig;
