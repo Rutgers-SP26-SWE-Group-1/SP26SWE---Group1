@@ -1,0 +1,4 @@
+tests/
+src/lib/auth.spec.ts
+src/app/signup/page.tsx
+src/app/signup/verify-notice/page.tsx

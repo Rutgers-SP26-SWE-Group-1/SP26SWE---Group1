@@ -291,8 +291,9 @@ export async function generateModelArgument(
       timestamp: new Date().toISOString(),
       round,
     };
-  } catch (error: any) {
-    return unavailableMessage(model, 'opening', round, error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return unavailableMessage(model, 'opening', round, errorMessage);
   }
 }
 
@@ -340,8 +341,9 @@ async function generateRoundResponseMessage(
       timestamp: new Date().toISOString(),
       round: currentRound,
     };
-  } catch (error: any) {
-    return unavailableMessage(model, 'rebuttal', currentRound, error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return unavailableMessage(model, 'rebuttal', currentRound, errorMessage);
   }
 }
 
@@ -385,8 +387,9 @@ export async function generateFollowUpMessage(
       timestamp: new Date().toISOString(),
       round,
     };
-  } catch (error: any) {
-    return unavailableMessage(model, 'followup', round, error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return unavailableMessage(model, 'followup', round, errorMessage);
   }
 }
 
