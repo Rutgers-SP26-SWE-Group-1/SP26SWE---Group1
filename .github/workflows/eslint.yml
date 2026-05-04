@@ -1,0 +1,30 @@
+name: ESLint CI Style Check
+
+# This pipeline runs automatically when code is pushed or a PR is opened
+on:
+  push:
+    branches: [ "main", "final-iteration3" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint:
+    name: Run ESLint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Uses a stable Node version
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run ESLint Command Line
+        # Next.js projects use 'npm run lint' to trigger ESLint
+        run: npm run lint
