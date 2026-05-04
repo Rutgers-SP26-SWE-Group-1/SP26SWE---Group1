@@ -25,8 +25,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm install
-          npm install --no-save @typescript-eslint/parser @typescript-eslint/eslint-plugin
+          npm install --legacy-peer-deps
+          npm install --no-save --legacy-peer-deps @typescript-eslint/parser @typescript-eslint/eslint-plugin
 
       - name: Run ESLint Command Line
         run: npm run lint
