@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "next lint",
     "test": "npx jasmine",
     "test:acceptance": "npx cucumber-js features/advanced-math-reasoning.feature",
     "test:browser": "node tests/browser-smoke-test.js",

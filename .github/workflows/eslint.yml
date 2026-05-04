@@ -25,4 +25,4 @@ jobs:
         run: npm install
 
       - name: Run ESLint Command Line
-        run: npx next lint
+        run: npm run lint
