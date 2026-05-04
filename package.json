@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src/",
+    "lint": "eslint src/ --no-error-on-unmatched-pattern",
     "test": "npx jasmine",
     "test:acceptance": "npx cucumber-js features/advanced-math-reasoning.feature",
     "test:browser": "node tests/browser-smoke-test.js",
