@@ -1,40 +1,16 @@
-Feature 1: Multiple LLM model integration using Ollama. [Branch: feature-ollama-integration] This was then updated to PR #1 where everything else lives. https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
-Feature 2: Save conversation history. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
-Feature 3: Search conversation history (search by title and message contents). [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
-Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
-Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
-Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1
+Feature 1: Multiple LLM model integration using Ollama. [Branch: feature-ollama-integration]
+Feature 2: Save conversation history. [Branch: feature/iteration2-final-updates]
+Feature 3: Search conversation history (search by title and message contents). [Branch: feature/iteration2-final-updates]
+Feature 4: Continue previous conversations. [Branch: feature/iteration2-final-updates]
+Feature 5: Delete conversation. [Branch: feature/iteration2-final-updates]
+Feature 6: Dark mode and light mode toggle. [Branch: feature/iteration2-final-updates]
 
-Requirements Team Mapping:
 
-- PR #1 "Feature/iteration2 final updates"
-- Changes:
-Iteration 2 Final Implementation
-This PR finalizes all core features for Iteration 2.
+Feature 7: Multi-Model Debate Mode. [PR 8](​​​​https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 8: Workspace UI and Folders. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 9: Live Weather and Rutgers News API. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
+Feature 10: Step-by-Step Math Reasoning. [PR 8](https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/8)
 
-Feature 4: Save conversation history to local storage/database.
+Many of these features are edited and then pushed, remerged and tested in older branches such as
+https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/tree/test-team-iteration3 
 
-Feature 5: Search conversation history by title and content.
-
-UI: Implemented Dark Mode, refined chat layout, and fixed model selection.
-
-Testing: All 12 Cucumber acceptance tests and Jasmine unit tests are passing.
-
-Fix: Resolved the Gemini API systemInstruction payload error.
-
-Features commits:
-[
-cde248ac0f52a5c4f01da7080e815ca59adeece3
-ad0bb76625dbe2bdd6ef5fff2714873f56fc5df0
-db723cc9327a62b75d7533a7184dd919ac179e77
-2371c2554276b85c3fe7dff9d8701750d65cad51
-8ac01bd9d53d158acaa4e9cb85581e35672015c5
-b457be472b9c04f29cb6e726e914cf2858c641ed
-0491d97a865fcdbe9969970ec001794e91632c28
-9d390c4e2c43a4a831fb520b3fddcd1432d0745f
-bc97f3d2707ca70543dfd42a39a4188c2fa708f0
-5f0c01971b7abf550430500f37b9d71378ee5b37
-]
-
-Modified 35 files, Added +2,046 lines, Removed 292 lines.
-[PR 1] https://github.com/Rutgers-SP26-SWE-Group-1/SP26SWE---Group1/pull/1

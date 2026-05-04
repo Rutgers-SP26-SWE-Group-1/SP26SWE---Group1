@@ -1,0 +1,32 @@
+name: ESLint CI Style Check
+
+on:
+  push:
+    branches: [ "main", "final-iteration3" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint:
+    name: Run ESLint
+    runs-on: ubuntu-latest
+    env:
+      ESLINT_USE_FLAT_CONFIG: false
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm install --legacy-peer-deps
+          npm install --no-save --legacy-peer-deps @typescript-eslint/parser @typescript-eslint/eslint-plugin
+
+      - name: Run ESLint Command Line
+        run: npm run lint

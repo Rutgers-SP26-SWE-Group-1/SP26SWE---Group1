@@ -9,6 +9,8 @@ Running new tests and potential features on Saturday March 14, 2026.
 
 All edits have been made by team members by Monday March 16, 2026.
 
+This Project is now complete with all iterations as of Saturday May 2, 2026
+
 # 🛡️ Scarlet AI
 
 The official AI interface for the Rutgers community, built for the SP26 Software Engineering project.

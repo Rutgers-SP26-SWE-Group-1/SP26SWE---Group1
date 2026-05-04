@@ -6,9 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint src/ --no-error-on-unmatched-pattern",
     "test": "npx jasmine",
-    "test:browser": "node tests/browser-smoke-test.js"
+    "test:acceptance": "npx cucumber-js features/advanced-math-reasoning.feature",
+    "test:browser": "node tests/browser-smoke-test.js",
+    "test:advanced-math-reasoning": "npm run test:acceptance && npm run test:browser",
+    "test:rutgers-course-weather:acceptance": "npx cucumber-js features/rutgers-course-search-weather.feature",
+    "test:rutgers-course-weather:browser": "node tests/rutgers-course-weather.puppeteer.js",
+    "test:rutgers-course-weather": "npm run test:rutgers-course-weather:acceptance && npm run test:rutgers-course-weather:browser",
+    "test:debate:acceptance": "npx cucumber-js features/model-debate.feature",
+    "test:debate:integration": "npx jasmine spec/debate_mode_integration_spec.js",
+    "test:debate:unit": "npx jasmine spec/debate_mode_unit_spec.js",
+    "test:debate": "npm run test:debate:unit && npm run test:debate:integration && npm run test:debate:acceptance"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",

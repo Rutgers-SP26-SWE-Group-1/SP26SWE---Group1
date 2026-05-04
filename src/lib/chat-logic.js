@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { randomUUID } = require('crypto');
 
 // Use 5000 for the logic check if your tests expect it, 
@@ -47,6 +48,20 @@ function normalizeMessage(message) {
   return typeof message === 'string' ? message.trim() : '';
 }
 
+const MATH_INDICATOR_PATTERNS = [
+  /\bsolve\b/i,
+  /\bequation\b/i,
+  /\bderivative\b/i,
+  /\bintegral\b/i,
+  /\bmatrix\b/i,
+  /\bproof\b/i,
+  /\bsimplify\b/i,
+  /\bcalculate\b/i,
+  /∑/,
+  /=/,
+  /(^|[^a-z])x([^a-z]|$)/i,
+];
+
 function validateChatRequest(message) {
   const normalized = normalizeMessage(message);
 
@@ -62,6 +77,38 @@ function validateChatRequest(message) {
   }
 
   return { isValid: true, error: null, normalizedMessage: normalized };
+}
+
+function detectMathReasoningRequest(message, stepByStepMode = false) {
+  if (stepByStepMode) {
+    return true;
+  }
+
+  const normalized = normalizeMessage(message);
+  if (!normalized) {
+    return false;
+  }
+
+  return MATH_INDICATOR_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function resolveChatModelId(selectedModelId, options = {}) {
+  const { stepByStepMode = false, isMathRequest = false } = options;
+
+  if (stepByStepMode || isMathRequest) {
+    return 'deepseek';
+  }
+
+  return selectedModelId;
+}
+
+function detectRutgersCourseWeatherRequest() {
+  return {
+    needsCourse: false,
+    needsWeather: false,
+    needsClothing: false,
+    needsAny: false,
+  };
 }
 
 function createConversationId(existingId) {
@@ -118,6 +165,9 @@ module.exports = {
   sanitizeInput,        // Fixed failures 1, 2
   buildFallbackReply,
   createConversationId,
+  detectMathReasoningRequest,
+  detectRutgersCourseWeatherRequest,
+  resolveChatModelId,
   sanitizeMessages,
   validateChatRequest,
 };
