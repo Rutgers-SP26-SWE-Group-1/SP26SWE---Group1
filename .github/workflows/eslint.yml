@@ -24,7 +24,9 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          npm install
+          npm install --no-save @typescript-eslint/parser @typescript-eslint/eslint-plugin
 
       - name: Run ESLint Command Line
         run: npm run lint
