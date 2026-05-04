@@ -10,6 +10,8 @@ jobs:
   lint:
     name: Run ESLint
     runs-on: ubuntu-latest
+    env:
+      ESLINT_USE_FLAT_CONFIG: false
 
     steps:
       - name: Checkout Repository
