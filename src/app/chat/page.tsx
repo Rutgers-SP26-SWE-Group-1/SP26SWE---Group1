@@ -613,18 +613,40 @@ export default function ChatHub() {
         debateThreadId: returnedDebateThread?.id,
       };
 
-      setConversations((current) =>
-        current.map((conversation) => {
-          if (conversation.id !== activeConversation.id) return conversation;
-          return {
-            ...conversation,
-            id: data.conversationId || conversation.id,
-            updatedAt: new Date().toISOString(),
-            messages: [...updatedConversation.messages, assistantMessage],
-          };
-        }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      );
-      if (data.conversationId) setActiveConversationId(data.conversationId);
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== activeConversation.id) return conversation;
+            return { ...conversation, updatedAt: new Date().toISOString(), messages: [...updatedConversation.messages, assistantMessage] };
+          }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        );
+      } else {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: trimmedInput, conversationId: activeConversation.id, messages: cleanMessages, modelId: selectedModelId, userName }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.content) throw new Error(data.error || 'Scarlet AI could not generate a response.');
+
+        const assistantModel = getChatModelOption(data.modelId ?? selectedModelId);
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content: data.content,
+          durationMs: data.durationMs,
+          modelId: data.modelId ?? assistantModel.id,
+          modelLabel: data.modelLabel ?? assistantModel.label,
+          modelDescription: data.modelDescription ?? assistantModel.description,
+        };
+
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== activeConversation.id) return conversation;
+            return { ...conversation, id: data.conversationId || conversation.id, updatedAt: new Date().toISOString(), messages: [...updatedConversation.messages, assistantMessage] };
+          }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        );
+        if (data.conversationId) setActiveConversationId(data.conversationId);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to send your message.');
     } finally {
@@ -958,12 +980,28 @@ export default function ChatHub() {
           })}
 
           {isGenerating && (
-            <div className="flex items-start gap-3">
-              <div className="relative w-9 h-9 flex-shrink-0">
-                <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
-                <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)]">
-                  <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
-                </div>
+            isCompareMode ? (
+              <div className="grid grid-cols-2 gap-4">
+                {[selectedModelId, secondModelId].map((modelId) => (
+                  <div key={modelId} className="flex items-start gap-3">
+                    <div className="relative w-9 h-9 flex-shrink-0">
+                      <div className="absolute inset-0 rounded-full border-2 border-t-scarlet border-transparent animate-spin" />
+                      <div className="w-full h-full rounded-full border border-[var(--card-border)] flex items-center justify-center bg-[var(--card-bg)]">
+                        <Image src="/overlayicon.png" alt="AI" width={18} height={18} className="opacity-50" />
+                      </div>
+                    </div>
+                    <div className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[140px]">
+                      <div className="flex gap-1.5 items-center">
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                        <div className="w-2 h-2 bg-scarlet/40 rounded-full animate-bounce [animation-delay:0.4s]" />
+                      </div>
+                      <span className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest animate-pulse">
+                        {`Thinking with ${getChatModelOption(modelId).label}...`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
               <div data-testid="thinking-state" className="bg-[var(--surface-soft)] border border-[var(--card-border)] p-5 rounded-2xl rounded-tl-none shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex flex-col gap-2 min-w-[220px]">
                 <div className="flex gap-1.5 items-center">
@@ -980,7 +1018,7 @@ export default function ChatHub() {
                   <p data-testid="thinking-phase" className="text-sm font-semibold text-[var(--text-primary)]">{STEP_BY_STEP_THINKING_MESSAGES[thinkingMessageIndex]}</p>
                 )}
               </div>
-            </div>
+            )
           )}
 
           {error && <div className="max-w-xl rounded-2xl border border-[var(--message-error-border)] bg-[var(--message-error-bg)] px-4 py-3 text-sm font-semibold text-[var(--message-error-text)]">{error}</div>}
