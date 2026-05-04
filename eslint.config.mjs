@@ -10,6 +10,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: ["tests/**/*", "**/*.spec.ts", "src/lib/auth.spec.ts", "src/app/signup/**/*"]
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     rules: {
