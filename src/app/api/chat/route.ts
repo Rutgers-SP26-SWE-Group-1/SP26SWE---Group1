@@ -2,11 +2,10 @@ import { NextResponse } from 'next/server';
 import {
   createConversationId,
   detectMathReasoningRequest,
-  resolveChatModelId,
   sanitizeMessages,
   validateChatRequest,
 } from '@/lib/chat-logic';
-import { CHAT_MODEL_OPTIONS, getChatModelOption, type ChatModelOption } from '@/lib/chat-models';
+import { getChatModelOption } from '@/lib/chat-models';
 import { runDebateFollowUp, runDebateMode } from '@/lib/debateMode';
 import { searchDuckDuckGo, type SearchResult } from '@/lib/duckDuckGoSearch';
 import {
@@ -226,7 +225,8 @@ async function getLiveWeather(query: string) {
     const forecast = data.weather[0]; 
     
     return `Live Weather for ${location.replace('_', ' ')}:\nCurrent Temp: ${current.temp_F}°F\nCondition: ${current.weatherDesc[0].value}\nFeels Like: ${current.FeelsLikeF}°F\nToday's High/Low: ${forecast.maxtempF}°F / ${forecast.mintempF}°F.`;
-  } catch (e) {
+  } catch (error) {
+    console.error("Weather API error:", error);
     return null;
   }
 }
@@ -255,7 +255,8 @@ async function getRutgersNews() {
     });
     
     return newsContext;
-  } catch (e) {
+  } catch (error) {
+    console.error("News API error:", error);
     return null;
   }
 }
@@ -363,8 +364,9 @@ export async function POST(request: Request) {
            debateThread,
            timestamp: new Date().toISOString()
         });
-      } catch (e: any) {
-        return NextResponse.json({ error: `Could not reach Debate Models: ${e.message}` }, { status: 503 });
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: `Could not reach Debate Models: ${errorMessage}` }, { status: 503 });
       }
     } else if (debateMode && body?.debateModelIds) {
       try {
@@ -380,8 +382,9 @@ export async function POST(request: Request) {
            debateThread: debate.thread,
            timestamp: new Date().toISOString()
         });
-      } catch (e: any) {
-        return NextResponse.json({ error: `Debate Mode failed. Ensure local models are downloaded. Error: ${e.message}` }, { status: 503 });
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: `Debate Mode failed. Ensure local models are downloaded. Error: ${errorMessage}` }, { status: 503 });
       }
     }
 
@@ -507,11 +510,12 @@ export async function POST(request: Request) {
                 durationMs: Date.now() - executeStart, 
                 status: 'success' 
             };
-        } catch (e: any) {
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
             return { 
                 modelId: id, 
                 modelLabel: modelOption.label, 
-                content: e.message, 
+                content: errorMessage, 
                 durationMs: Date.now() - executeStart, 
                 status: 'error' 
             };
